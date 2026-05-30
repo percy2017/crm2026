@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookUser, Images, LayoutGrid, Radio, Smartphone, Users } from 'lucide-react';
+import { BookUser, Images, LayoutGrid, Radio, Smartphone, ShoppingCart, Users } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -47,6 +47,18 @@ const mainNavItems: NavItem[] = [
         title: 'Medios',
         href: '/admin/media',
         icon: Images,
+    },
+    {
+        title: 'WooCommerce',
+        href: '/admin/woocommerce',
+        icon: ShoppingCart,
+        children: [
+            { title: 'POS', href: '/admin/woocommerce/pos' },
+            { title: 'Dashboard', href: '/admin/woocommerce' },
+            { title: 'Products', href: '/admin/woocommerce/products' },
+            { title: 'Orders', href: '/admin/woocommerce/orders' },
+            { title: 'Customers', href: '/admin/woocommerce/customers' },
+        ],
     },
 ];
 
