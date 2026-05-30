@@ -1,0 +1,25 @@
+export type Contact = {
+    id: number;
+    name: string | null;
+    phone: string | null;
+    whatsapp_id: string | null;
+    email: string | null;
+    notes: string | null;
+    profile_pic_url: string | null;
+    is_active: boolean;
+    is_business: boolean;
+    wa_status: string | null;
+    description: string | null;
+    website: string[] | null;
+    country: string | null;
+    type: 'individual' | 'group';
+    instance: string | null;
+    group_jids: string[] | null;
+    participant_count: number | null;
+    is_community: boolean;
+    owner: string | null;
+    last_synced_at: string | null;
+    created_at: string;
+    updated_at: string;
+    [key: string]: unknown;
+};

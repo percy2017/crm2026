@@ -1,0 +1,142 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Http;
+use RuntimeException;
+
+class EvolutionApiService
+{
+    private string $serverUrl;
+
+    private string $apiKey;
+
+    public function __construct()
+    {
+        $this->serverUrl = rtrim(config('evolution.server_url', ''), '/');
+
+        $this->apiKey = config('evolution.api_key', '');
+
+        if (empty($this->serverUrl) || empty($this->apiKey)) {
+            throw new RuntimeException('Evolution API credentials not configured.');
+        }
+    }
+
+    public function fetchInstances(): array
+    {
+        $response = $this->client()->get('/instance/fetchInstances');
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function fetchProfile(string $instance, string $number): array
+    {
+        $response = $this->client()->post("/chat/fetchProfile/{$instance}", [
+            'number' => $number,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function fetchProfilePictureUrl(string $instance, string $number): array
+    {
+        $response = $this->client()->post("/chat/fetchProfilePictureUrl/{$instance}", [
+            'number' => $number,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function fetchBusinessProfile(string $instance, string $number): array
+    {
+        $response = $this->client()->post("/chat/fetchBusinessProfile/{$instance}", [
+            'number' => $number,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function whatsappNumbers(string $instance, string $number): array
+    {
+        $response = $this->client()->post("/chat/whatsappNumbers/{$instance}", [
+            'numbers' => [$number],
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function findContacts(string $instance): array
+    {
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(120)
+            ->post("/chat/findContacts/{$instance}", []);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function fetchGroups(string $instance): array
+    {
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(120)
+            ->get("/group/fetchAllGroups/{$instance}", [
+                'getParticipants' => 'true',
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    private function client(): PendingRequest
+    {
+        return Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(10);
+    }
+}
