@@ -2,10 +2,10 @@
 
 ## Stack
 
-- **PHP 8.3+**, Laravel 13, MariaDB, nginx
+- **PHP 8.4+**, Laravel 13, SQLite (or MySQL), nginx
 - **React 19**, Inertia 3, Tailwind 4, TypeScript
 - Auth: Laravel Fortify (login/register/2FA/passkeys)
-- Realtime: Laravel Reverb (WebSocket, port 6001) via PM2
+- Realtime: Laravel Reverb (WebSocket, port 2002) via PM2
 - Frontend build: Vite 8, Rolldown
 
 ## Key commands
@@ -31,22 +31,24 @@
 - **Sidebar menu** defined in `resources/js/components/app-sidebar.tsx` as `NavItem[]`.
 - **`.npmrc`** has `ignore-scripts=true` — npm install won't run build hooks.
 - **`package.json`** has `"type": "module"` — CommonJS config files need `.cjs` extension (e.g. `ecosystem.config.cjs`).
+- **`ecosystem.config.example.cjs`** — example PM2 config; copy to `ecosystem.config.cjs` and adjust `interpreter` path if needed.
 - **CSRF token**: `<meta name="csrf-token">` added to `resources/views/app.blade.php` for manual fetch requests.
 
 ## Environment quirks
 
-- `.env` uses **MySQL** (`DB_CONNECTION=mysql`, database `laravel`) not the default SQLite.
-- Reverb runs on port **6001** (not 8080) due to VS Code using 8080. nginx proxies `/app` and `/apps` to `0.0.0.0:6001`.
-- Domain `laravel.local` → nginx serving `/home/percy/store2026/public`.
+- `.env` uses **SQLite** by default (`DB_CONNECTION=sqlite`). Also supports MySQL.
+- If your system has multiple PHP versions, use the `php8.4` binary for artisan commands.
+- Reverb runs on port **2002** (configurable via `REVERB_SERVER_PORT`). nginx proxies `/app` to the Reverb server.
 - Echo + Pusher JS for frontend WebSocket client. Pusher client needs `cluster` option even with Reverb.
+- Reverb requires `pcntl` extension. Ensure `pcntl_*` functions are NOT in `disable_functions` in your PHP CLI php.ini.
 
 ## Modules
 
 ### 1. Reverb (WebSocket / Realtime)
-- **Stack**: Laravel Reverb, port **6001**, managed via PM2 (`ecosystem.config.cjs`)
+- **Stack**: Laravel Reverb, port **2002**, managed via PM2 (`ecosystem.config.cjs`)
 - **Frontend**: Echo + Pusher JS client (needs `cluster` option even with Reverb)
 - **Page**: `/reverb-monitor` → `resources/js/pages/reverb-monitor.tsx`
-- **nginx**: proxies `/app` and `/apps` to `0.0.0.0:6001`
+- **nginx**: proxies `/app` to `0.0.0.0:2002`
 - **Commands**: `pm2 restart reverb`, `pm2 start ecosystem.config.cjs`
 
 ### 2. Evolution Instances (Admin read-only dashboard)
