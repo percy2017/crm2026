@@ -30,3 +30,4 @@ yarn-error.log
 /database/database.sqlite
 *.local
 ecosystem.config.cjs
+package-lock.json

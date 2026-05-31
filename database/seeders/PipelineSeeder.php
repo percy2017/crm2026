@@ -16,11 +16,9 @@ class PipelineSeeder extends Seeder
         ]);
 
         $stages = [
-            ['name' => 'Nuevo', 'order' => 0, 'color' => '#6b7280'],
-            ['name' => 'Cotizado', 'order' => 1, 'color' => '#f59e0b'],
-            ['name' => 'Negociación', 'order' => 2, 'color' => '#3b82f6'],
-            ['name' => 'Ganado', 'order' => 3, 'color' => '#22c55e'],
-            ['name' => 'Perdido', 'order' => 4, 'color' => '#ef4444'],
+            ['name' => 'Lead', 'order' => 0, 'color' => '#6b7280'],
+            ['name' => 'Interesado', 'order' => 1, 'color' => '#f59e0b'],
+            ['name' => 'Cliente', 'order' => 2, 'color' => '#3b82f6'],
         ];
 
         foreach ($stages as $stage) {
