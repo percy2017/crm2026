@@ -16,6 +16,7 @@ export type WooProduct = {
     stock_quantity: number | null;
     manage_stock: boolean;
     categories: { id: number; name: string; slug: string }[];
+    brands: { id: number; name: string; slug: string }[];
     tags: { id: number; name: string; slug: string }[];
     images: { id: number; src: string; name: string; alt: string }[];
     attributes: {
@@ -57,6 +58,12 @@ export type WooOrder = {
     coupon_lines: { id: number; code: string; discount: string }[];
     note: string;
     customer_note: string;
+    subscription_meta?: {
+        title: string | null;
+        start_date: string | null;
+        end_date: string | null;
+    };
+    contact_profile_pic_url?: string | null;
 };
 
 export type WooAddress = {

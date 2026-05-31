@@ -80,10 +80,6 @@ export default function WooCommerceDashboard() {
             <Head title="WooCommerce Dashboard" />
 
             <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-                <Heading
-                    title="WooCommerce"
-                    description="Store overview"
-                />
 
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                     <div className="rounded-xl border p-4">

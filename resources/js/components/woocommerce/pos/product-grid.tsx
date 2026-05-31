@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { CalendarDays, LayoutDashboard, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
     Select,
@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ProductCard } from './product-card';
 import type { WooProduct } from '@/types';
+import { router } from '@inertiajs/react';
 
 type Category = { id: number; name: string; slug: string };
 
@@ -65,6 +66,24 @@ export function ProductGrid({
                         ))}
                     </SelectContent>
                 </Select>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-9 shrink-0"
+                    onClick={() => router.visit('/admin/woocommerce')}
+                    title="Dashboard WooCommerce"
+                >
+                    <LayoutDashboard className="size-4" />
+                </Button>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-9 shrink-0"
+                    onClick={() => router.visit('/admin/woocommerce/subscriptions/calendar')}
+                    title="Calendario de suscripciones"
+                >
+                    <CalendarDays className="size-4" />
+                </Button>
             </div>
 
             <div className="grid grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto flex-1 min-h-0 content-start">

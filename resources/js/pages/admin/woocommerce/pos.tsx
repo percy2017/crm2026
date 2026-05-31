@@ -4,12 +4,16 @@ import { CheckCircle2, Printer, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProductGrid } from '@/components/woocommerce/pos/product-grid';
 import { CartPanel } from '@/components/woocommerce/pos/cart-panel';
-import { RecentOrdersBar } from '@/components/woocommerce/pos/recent-orders-bar';
+import { VariationSelector, type WooVariation } from '@/components/woocommerce/pos/variation-selector';
 import type { WooPaginatedResponse, WooProduct } from '@/types';
 
-type CartItem = {
+export type CartItem = {
+    id: string;
     product: WooProduct;
+    variation: WooVariation | null;
     quantity: number;
+    label: string;
+    price: number;
 };
 
 type PaymentGateway = {
@@ -32,6 +36,11 @@ type Category = {
     slug: string;
 };
 
+let cartIdCounter = 0;
+function nextCartId() {
+    return `cart_${++cartIdCounter}`;
+}
+
 export default function WooPos({
     categories,
     paymentGateways,
@@ -50,8 +59,16 @@ export default function WooPos({
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [paymentMethod, setPaymentMethod] = useState(paymentGateways[0]?.id ?? 'cod');
     const [paying, setPaying] = useState(false);
+    const [coupons, setCoupons] = useState<string[]>([]);
+
+    const [saleType, setSaleType] = useState<'direct' | 'subscription'>('direct');
+    const [subscriptionTitle, setSubscriptionTitle] = useState('');
+    const [subscriptionEndDate, setSubscriptionEndDate] = useState('');
+    const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
 
     const [orderSuccess, setOrderSuccess] = useState<{ number: string; total: string } | null>(null);
+
+    const [variationProduct, setVariationProduct] = useState<WooProduct | null>(null);
 
     const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -95,31 +112,101 @@ export default function WooPos({
         fetchProducts();
     }, [fetchProducts]);
 
-    const addToCart = (product: WooProduct) => {
-        setCart((prev) => {
-            const existing = prev.find((item) => item.product.id === product.id);
-            if (existing) {
-                return prev.map((item) =>
-                    item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item,
-                );
-            }
-            return [...prev, { product, quantity: 1 }];
-        });
+    const handleAddSimpleProduct = (product: WooProduct) => {
+        const existing = cart.find(
+            (item) => item.product.id === product.id && item.variation === null,
+        );
+        if (existing) {
+            setCart((prev) =>
+                prev.map((item) =>
+                    item.id === existing.id ? { ...item, quantity: item.quantity + 1 } : item,
+                ),
+            );
+        } else {
+            setCart((prev) => [
+                ...prev,
+                {
+                    id: nextCartId(),
+                    product,
+                    variation: null,
+                    quantity: 1,
+                    label: product.name,
+                    price: Number.parseFloat(product.price || '0'),
+                },
+            ]);
+        }
         setOrderSuccess(null);
     };
 
-    const updateQuantity = (productId: number, delta: number) => {
+    const handleAddVariableProduct = (product: WooProduct, variation: WooVariation) => {
+        const price = Number.parseFloat(variation.sale_price || variation.regular_price || variation.price || '0');
+        const attrLabel = variation.attributes.map((a) => a.option).join(', ');
+        const label = `${product.name} — ${attrLabel}`;
+
+        const existing = cart.find(
+            (item) => item.product.id === product.id && item.variation?.id === variation.id,
+        );
+        if (existing) {
+            setCart((prev) =>
+                prev.map((item) =>
+                    item.id === existing.id ? { ...item, quantity: item.quantity + 1 } : item,
+                ),
+            );
+        } else {
+            setCart((prev) => [
+                ...prev,
+                {
+                    id: nextCartId(),
+                    product,
+                    variation,
+                    quantity: 1,
+                    label,
+                    price,
+                },
+            ]);
+        }
+        setOrderSuccess(null);
+    };
+
+    const addToCart = (product: WooProduct) => {
+        if (product.type === 'variable') {
+            setVariationProduct(product);
+            return;
+        }
+        handleAddSimpleProduct(product);
+    };
+
+    const updateQuantity = (cartId: string, delta: number) => {
         setCart((prev) =>
             prev
                 .map((item) =>
-                    item.product.id === productId ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item,
+                    item.id === cartId ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item,
                 )
                 .filter((item) => item.quantity > 0),
         );
     };
 
-    const removeItem = (productId: number) => {
-        setCart((prev) => prev.filter((item) => item.product.id !== productId));
+    const removeItem = (cartId: string) => {
+        setCart((prev) => prev.filter((item) => item.id !== cartId));
+    };
+
+    const updatePrice = (cartId: string, newPrice: number) => {
+        setCart((prev) =>
+            prev.map((item) =>
+                item.id === cartId ? { ...item, price: Math.max(0, newPrice) } : item,
+            ),
+        );
+    };
+
+    const addCoupon = (code: string) => {
+        const trimmed = code.trim().toUpperCase();
+        if (trimmed && !coupons.includes(trimmed)) {
+            setCoupons((prev) => [...prev, trimmed]);
+        }
+    };
+
+    const removeCoupon = (code: string) => {
+        setCoupons((prev) => prev.filter((c) => c !== code));
     };
 
     const handleCheckout = async () => {
@@ -129,6 +216,7 @@ export default function WooPos({
         const lineItems = cart.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
+            ...(item.variation ? { variation_id: item.variation.id } : {}),
         }));
 
         const parts = customer?.name.split(' ') ?? [];
@@ -137,12 +225,20 @@ export default function WooPos({
             payment_method: paymentMethod,
             payment_method_title: paymentGateways.find((g) => g.id === paymentMethod)?.title ?? paymentMethod,
             customer_note: 'POS sale',
+            coupon_lines: coupons.map((code) => ({ code })),
+            sale_type: saleType,
+            date_created: purchaseDate,
+            ...(saleType === 'subscription' && {
+                subscription_title: subscriptionTitle,
+                subscription_end_date: subscriptionEndDate,
+            }),
             billing: customer
                 ? {
                       first_name: parts[0] ?? '',
                       last_name: parts.slice(1).join(' ') ?? '',
                       email: customer.email ?? '',
                       phone: customer.phone ?? '',
+                      contact_id: customer.id,
                   }
                 : undefined,
         };
@@ -180,19 +276,20 @@ export default function WooPos({
     const newOrder = () => {
         setCart([]);
         setCustomer(null);
+        setCoupons([]);
         setOrderSuccess(null);
+        setSaleType('direct');
+        setSubscriptionTitle('');
+        setSubscriptionEndDate('');
     };
 
     const handlePrint = () => {
         const order = orderSuccess;
         if (!order) return;
 
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-
         const items = cart.length > 0 ? cart : [];
 
-        printWindow.document.write(`
+        const html = `
             <html>
             <head><title>Ticket #${order.number}</title>
             <style>
@@ -215,9 +312,9 @@ export default function WooPos({
                     <tr><th>Item</th><th class="right">Cant</th><th class="right">Total</th></tr>
                     ${items.map(item => `
                         <tr>
-                            <td>${item.product.name}</td>
+                            <td>${item.label}</td>
                             <td class="right">${item.quantity}</td>
-                            <td class="right">${(Number(item.product.price) * item.quantity).toFixed(2)}</td>
+                            <td class="right">${(item.price * item.quantity).toFixed(2)}</td>
                         </tr>
                     `).join('')}
                 </table>
@@ -225,11 +322,25 @@ export default function WooPos({
                 <p class="right total">Total: Bs ${order.total}</p>
                 <hr>
                 <p class="center">¡Gracias por su compra!</p>
-                <script>window.print(); window.close();</script>
             </body>
             </html>
-        `);
-        printWindow.document.close();
+        `;
+
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const printWindow = window.open(url, '_blank');
+        if (!printWindow) return;
+
+        const checkLoaded = setInterval(() => {
+            if (printWindow.document.readyState === 'complete') {
+                clearInterval(checkLoaded);
+                printWindow.onafterprint = () => {
+                    printWindow.close();
+                    URL.revokeObjectURL(url);
+                };
+                printWindow.print();
+            }
+        }, 100);
     };
 
     return (
@@ -237,31 +348,16 @@ export default function WooPos({
             <Head title="POS — WooCommerce" />
 
             <div className="flex h-full flex-1 flex-col gap-3 rounded-xl p-4 min-h-0">
-                <div className="flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                        <h1 className="text-xl font-bold">POS</h1>
-                        {orderSuccess ? (
-                            <span className="flex items-center gap-1 text-sm text-green-600">
-                                <CheckCircle2 className="size-4" />
-                                Orden #{orderSuccess.number} creada
-                            </span>
-                        ) : (
-                            <span className="text-sm text-muted-foreground">Point of Sale</span>
-                        )}
+                {orderSuccess && (
+                    <div className="flex items-center justify-end gap-2 shrink-0">
+                        <Button variant="outline" size="sm" onClick={handlePrint}>
+                            <Printer className="size-4 mr-1" /> Imprimir
+                        </Button>
+                        <Button variant="default" size="sm" onClick={newOrder}>
+                            <RotateCcw className="size-4 mr-1" /> Nueva Orden
+                        </Button>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {orderSuccess && (
-                            <>
-                                <Button variant="outline" size="sm" onClick={handlePrint}>
-                                    <Printer className="size-4 mr-1" /> Imprimir
-                                </Button>
-                                <Button variant="default" size="sm" onClick={newOrder}>
-                                    <RotateCcw className="size-4 mr-1" /> Nueva Orden
-                                </Button>
-                            </>
-                        )}
-                    </div>
-                </div>
+                )}
 
                 {orderSuccess ? (
                     <div className="flex flex-1 items-center justify-center">
@@ -308,22 +404,37 @@ export default function WooPos({
                                 customer={customer}
                                 paymentMethod={paymentMethod}
                                 paymentGateways={paymentGateways}
+                                coupons={coupons}
+                                saleType={saleType}
+                                purchaseDate={purchaseDate}
+                                subscriptionTitle={subscriptionTitle}
+                                subscriptionEndDate={subscriptionEndDate}
                                 onUpdateQuantity={updateQuantity}
                                 onRemoveItem={removeItem}
+                                onUpdatePrice={updatePrice}
                                 onCustomerSelect={setCustomer}
                                 onCustomerClear={() => setCustomer(null)}
                                 onPaymentMethodChange={setPaymentMethod}
+                                onApplyCoupon={addCoupon}
+                                onRemoveCoupon={removeCoupon}
+                                onSaleTypeChange={setSaleType}
+                                onPurchaseDateChange={setPurchaseDate}
+                                onSubscriptionTitleChange={setSubscriptionTitle}
+                                onSubscriptionEndDateChange={setSubscriptionEndDate}
                                 onCheckout={handleCheckout}
                                 paying={paying}
                             />
                         </div>
                     </div>
                 )}
-
-                <div className="shrink-0">
-                    <RecentOrdersBar onRefetch={() => {}} />
-                </div>
             </div>
+
+            <VariationSelector
+                product={variationProduct}
+                open={variationProduct !== null}
+                onClose={() => setVariationProduct(null)}
+                onSelect={handleAddVariableProduct}
+            />
         </>
     );
 }

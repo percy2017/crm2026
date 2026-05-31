@@ -159,10 +159,6 @@ export default function EvolutionInstancesIndex({ instances }: { instances: Evol
             <Head title="Evolution Instances" />
 
             <div className="flex h-full flex-1 flex-col gap-6 rounded-xl p-4">
-                <Heading
-                    title="Evolution Instances"
-                    description="WhatsApp instances connected via Evolution API"
-                />
 
                 <div className="flex gap-1 rounded-lg border bg-muted p-1">
                     <button

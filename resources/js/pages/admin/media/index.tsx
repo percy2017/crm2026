@@ -1,16 +1,15 @@
 import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, CalendarDays, HardDrive, FileType, Download, Trash2, X, Link as LinkIcon } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import {
     Sheet,
-    SheetClose,
     SheetContent,
-    SheetFooter,
     SheetHeader,
     SheetTitle,
+    SheetDescription,
 } from '@/components/ui/sheet';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import { index as adminMediaIndex } from '@/routes/admin/media';
@@ -87,7 +86,7 @@ function formatSize(bytes: number): string {
 }
 
 function formatDate(timestamp: number): string {
-    return new Date(timestamp * 1000).toLocaleDateString('es-BO', {
+    return new Date(timestamp * 1000).toLocaleDateString('es', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -292,15 +291,31 @@ export default function MediaIndex() {
             </div>
 
             <Sheet open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-                <SheetContent side="right" className="w-full sm:max-w-md">
+                <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
                     {selected && (
                         <>
-                            <SheetHeader>
-                                <SheetTitle className="truncate pr-6">{selected.name}</SheetTitle>
-                            </SheetHeader>
+                            <div className="sticky top-0 z-10 border-b bg-card px-6 py-4">
+                                <SheetHeader className="text-left">
+                                    <div className="flex items-center justify-between">
+                                        <SheetTitle className="text-lg truncate pr-4">
+                                            {selected.name}
+                                        </SheetTitle>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelected(null)}
+                                            className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted transition-colors"
+                                        >
+                                            <X className="size-4" />
+                                        </button>
+                                    </div>
+                                    <SheetDescription>
+                                        {formatSize(selected.size)} — {selected.mime}
+                                    </SheetDescription>
+                                </SheetHeader>
+                            </div>
 
-                            <div className="flex-1 overflow-y-auto px-4">
-                                <div className="mb-4 flex aspect-video items-center justify-center rounded-lg bg-muted">
+                            <div className="px-6 py-4 space-y-6">
+                                <div className="flex aspect-video items-center justify-center rounded-xl bg-muted overflow-hidden">
                                     {isImage(selected.mime) ? (
                                         <img
                                             src={selected.url}
@@ -314,59 +329,70 @@ export default function MediaIndex() {
                                     )}
                                 </div>
 
-                                <dl className="space-y-3 text-sm">
-                                    <div className="flex justify-between">
-                                        <dt className="text-muted-foreground">Type</dt>
-                                        <dd className="font-medium">{selected.mime}</dd>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="rounded-lg bg-muted/50 p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <FileType className="size-3.5 text-muted-foreground" />
+                                            <p className="text-xs text-muted-foreground">Tipo</p>
+                                        </div>
+                                        <p className="text-sm font-medium truncate">{selected.mime}</p>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <dt className="text-muted-foreground">Size</dt>
-                                        <dd className="font-medium">{formatSize(selected.size)}</dd>
+                                    <div className="rounded-lg bg-muted/50 p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <HardDrive className="size-3.5 text-muted-foreground" />
+                                            <p className="text-xs text-muted-foreground">Tamaño</p>
+                                        </div>
+                                        <p className="text-sm font-medium">{formatSize(selected.size)}</p>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <dt className="text-muted-foreground">Modified</dt>
-                                        <dd className="font-medium">{formatDate(selected.last_modified)}</dd>
+                                    <div className="col-span-2 rounded-lg bg-muted/50 p-3">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <CalendarDays className="size-3.5 text-muted-foreground" />
+                                            <p className="text-xs text-muted-foreground">Modificado</p>
+                                        </div>
+                                        <p className="text-sm font-medium">{formatDate(selected.last_modified)}</p>
                                     </div>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <dt className="text-muted-foreground shrink-0">URL</dt>
-                                        <dd className="flex min-w-0 items-center gap-1">
-                                            <span className="truncate font-mono text-xs">
-                                                {selected.url}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleCopyUrl(selected.url)}
-                                                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted"
-                                                title="Copy URL"
-                                            >
-                                                {copied ? (
-                                                    <Check className="size-3.5 text-green-500" />
-                                                ) : (
-                                                    <Copy className="size-3.5" />
-                                                )}
-                                            </button>
-                                        </dd>
-                                    </div>
-                                </dl>
-                            </div>
+                                </div>
 
-                            <SheetFooter>
-                                <Button variant="outline" asChild className="flex-1">
-                                    <a href={selected.url} download target="_blank">
-                                        Download
-                                    </a>
-                                </Button>
-                                <Button
-                                    variant="destructive"
-                                    className="flex-1"
-                                    onClick={() => handleDelete(selected.name)}
-                                >
-                                    Delete
-                                </Button>
-                                <SheetClose asChild>
-                                    <Button variant="ghost">Close</Button>
-                                </SheetClose>
-                            </SheetFooter>
+                                <div className="border-t pt-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <LinkIcon className="size-4 text-muted-foreground" />
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">URL</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-muted/30 rounded-lg px-3 py-2">
+                                        <span className="flex-1 truncate font-mono text-xs text-muted-foreground">
+                                            {selected.url}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopyUrl(selected.url)}
+                                            className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted transition-colors"
+                                            title="Copy URL"
+                                        >
+                                            {copied ? (
+                                                <Check className="size-4 text-green-500" />
+                                            ) : (
+                                                <Copy className="size-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2 pt-2">
+                                    <Button variant="default" className="flex-1" asChild>
+                                        <a href={selected.url} download target="_blank">
+                                            <Download className="size-4 mr-1" /> Descargar
+                                        </a>
+                                    </Button>
+                                    <Button
+                                        variant="destructive"
+                                        size="icon"
+                                        onClick={() => handleDelete(selected.name)}
+                                        title="Eliminar"
+                                    >
+                                        <Trash2 className="size-4" />
+                                    </Button>
+                                </div>
+                            </div>
                         </>
                     )}
                 </SheetContent>

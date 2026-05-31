@@ -1,5 +1,5 @@
-import { Link } from '@inertiajs/react';
-import { BookUser, Images, LayoutGrid, Radio, Smartphone, ShoppingCart, Users } from 'lucide-react';
+import { Link, usePage } from '@inertiajs/react';
+import { BookUser, Images, LayoutGrid, MessageSquare, Settings, ShoppingCart } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -15,56 +15,75 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as adminUsersIndex } from '@/routes/admin/users';
-import type { NavItem } from '@/types';
-
-const mainNavItems: NavItem[] = [
-    {
-        title: 'Dashboard',
-        href: dashboard(),
-        icon: LayoutGrid,
-    },
-    {
-        title: 'Users',
-        href: adminUsersIndex(),
-        icon: Users,
-    },
-    {
-        title: 'Reverb Monitor',
-        href: '/reverb-monitor',
-        icon: Radio,
-    },
-    {
-        title: 'Evolution Instances',
-        href: '/admin/evolution-instances',
-        icon: Smartphone,
-    },
-    {
-        title: 'Contacts',
-        href: '/admin/contacts',
-        icon: BookUser,
-    },
-    {
-        title: 'Medios',
-        href: '/admin/media',
-        icon: Images,
-    },
-    {
-        title: 'WooCommerce',
-        href: '/admin/woocommerce',
-        icon: ShoppingCart,
-        children: [
-            { title: 'POS', href: '/admin/woocommerce/pos' },
-            { title: 'Dashboard', href: '/admin/woocommerce' },
-            { title: 'Products', href: '/admin/woocommerce/products' },
-            { title: 'Orders', href: '/admin/woocommerce/orders' },
-            { title: 'Customers', href: '/admin/woocommerce/customers' },
-        ],
-    },
-];
-
-const footerNavItems: NavItem[] = [];
+import type { EvolutionInstance, NavItem } from '@/types';
 
 export function AppSidebar() {
+    const { evolutionInstances } = usePage().props as unknown as {
+        evolutionInstances: EvolutionInstance[];
+    };
+
+    const platformItems: NavItem[] = [
+        {
+            title: 'Dashboard',
+            href: dashboard(),
+            icon: LayoutGrid,
+        },
+    ];
+
+    const messagingItems: NavItem[] = [
+        {
+            title: 'Entradas',
+            href: '#',
+            icon: MessageSquare,
+            children: (evolutionInstances ?? []).map((inst) => ({
+                title: inst.name,
+                href: `/admin/entradas/${inst.name}`,
+            })),
+        },
+        {
+            title: 'Contacts',
+            href: '/admin/contacts',
+            icon: BookUser,
+            children: [
+                { title: 'All Contacts', href: '/admin/contacts' },
+                { title: 'Create Contact', href: '/admin/contacts/create' },
+            ],
+        },
+        {
+            title: 'Medios',
+            href: '/admin/media',
+            icon: Images,
+        },
+    ];
+
+    const commerceItems: NavItem[] = [
+        {
+            title: 'WooCommerce',
+            href: '/admin/woocommerce',
+            icon: ShoppingCart,
+            children: [
+                { title: 'POS', href: '/admin/woocommerce/pos' },
+                { title: 'Products', href: '/admin/woocommerce/products' },
+                { title: 'Orders', href: '/admin/woocommerce/orders' },
+            ],
+        },
+    ];
+
+    const systemItems: NavItem[] = [
+        {
+            title: 'Configuración',
+            href: '#',
+            icon: Settings,
+            children: [
+                { title: 'Users', href: adminUsersIndex() },
+                { title: 'Reverb Monitor', href: '/reverb-monitor' },
+                { title: 'Evolution API', href: '/admin/evolution-instances' },
+            ],
+        },
+    ];
+
+    const footerNavItems: NavItem[] = [];
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -80,7 +99,10 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain items={platformItems} label="Platform" />
+                <NavMain items={messagingItems} label="Messaging" />
+                <NavMain items={commerceItems} label="Commerce" />
+                <NavMain items={systemItems} label="System" />
             </SidebarContent>
 
             <SidebarFooter>

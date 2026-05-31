@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use Codexshaper\WooCommerce\Facades\Category;
-use Codexshaper\WooCommerce\Facades\Customer;
 use Codexshaper\WooCommerce\Facades\Order;
 use Codexshaper\WooCommerce\Facades\PaymentGateway;
 use Codexshaper\WooCommerce\Facades\Product;
 use Codexshaper\WooCommerce\Facades\Report;
 use Codexshaper\WooCommerce\Facades\Tag;
+use Codexshaper\WooCommerce\Facades\Variation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -30,8 +30,6 @@ class AdminWooCommerceController extends Controller
             $topSellersData = Report::topSellers();
             $totalProducts = Product::count();
             $totalOrders = Order::count();
-            $totalCustomers = Customer::count();
-
             $salesReport = is_array($sales) ? ($sales[0] ?? $sales) : [];
             $totalSales = $salesReport['total_sales'] ?? '0.00';
             $netSales = $salesReport['net_sales'] ?? '0.00';
@@ -59,7 +57,6 @@ class AdminWooCommerceController extends Controller
                 'total_sales' => $totalSales,
                 'total_orders' => $totalOrdersCount,
                 'total_products' => $totalProducts,
-                'total_customers' => $totalCustomers,
                 'net_sales' => $netSales,
                 'avg_order_value' => $avgOrderValue,
                 'top_sellers' => $topSellers,
@@ -112,21 +109,17 @@ class AdminWooCommerceController extends Controller
         }
     }
 
-    public function productShow(int $id): Response|JsonResponse
+    public function productShow(int $id): JsonResponse
     {
-        if (request()->wantsJson()) {
-            try {
-                $product = Product::withOriginal()->find($id);
+        try {
+            $product = Product::withOriginal()->find($id);
 
-                return response()->json(['data' => $product]);
-            } catch (\Exception $e) {
-                report($e);
+            return response()->json(['data' => $product]);
+        } catch (\Exception $e) {
+            report($e);
 
-                return response()->json(['error' => $e->getMessage()], 422);
-            }
+            return response()->json(['error' => $e->getMessage()], 422);
         }
-
-        return Inertia::render('admin/woocommerce/products/show', ['productId' => $id]);
     }
 
     public function productCreate(): Response
@@ -232,6 +225,19 @@ class AdminWooCommerceController extends Controller
         }
     }
 
+    public function productVariations(int $id): JsonResponse
+    {
+        try {
+            $variations = Variation::all($id, ['per_page' => 100]);
+
+            return response()->json(['data' => $variations]);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+    }
+
     public function pos(): Response
     {
         $categories = Category::all();
@@ -249,20 +255,37 @@ class AdminWooCommerceController extends Controller
             'line_items' => 'required|array',
             'line_items.*.product_id' => 'required|integer',
             'line_items.*.quantity' => 'required|integer|min:1',
+            'line_items.*.variation_id' => 'nullable|integer',
             'payment_method' => 'required|string',
             'payment_method_title' => 'required|string',
             'customer_note' => 'nullable|string',
             'billing' => 'nullable|array',
+            'coupon_lines' => 'nullable|array',
+            'coupon_lines.*.code' => 'required_with:coupon_lines|string',
+            'sale_type' => 'nullable|string|in:direct,subscription',
+            'subscription_title' => 'nullable|string|max:255',
+            'subscription_end_date' => 'nullable|date',
+            'date_created' => 'nullable|date',
         ]);
 
         try {
+            $lineItems = array_map(fn ($item) => array_filter([
+                'product_id' => $item['product_id'],
+                'quantity' => $item['quantity'],
+                'variation_id' => $item['variation_id'] ?? 0,
+            ]), $validated['line_items']);
+
             $data = [
                 'payment_method' => $validated['payment_method'],
                 'payment_method_title' => $validated['payment_method_title'],
                 'set_paid' => true,
                 'status' => 'completed',
-                'line_items' => $validated['line_items'],
+                'line_items' => $lineItems,
             ];
+
+            if (!empty($validated['date_created'])) {
+                $data['date_created'] = $validated['date_created'];
+            }
 
             if (!empty($validated['customer_note'])) {
                 $data['customer_note'] = $validated['customer_note'];
@@ -270,6 +293,29 @@ class AdminWooCommerceController extends Controller
 
             if (!empty($validated['billing'])) {
                 $data['billing'] = $validated['billing'];
+            }
+
+            if (!empty($validated['coupon_lines'])) {
+                $data['coupon_lines'] = $validated['coupon_lines'];
+            }
+
+            $metaData = [];
+
+            if (!empty($validated['billing']['contact_id'])) {
+                $metaData[] = ['key' => '_contact_id', 'value' => (int) $validated['billing']['contact_id']];
+            }
+
+            if ($validated['sale_type'] === 'subscription') {
+                $metaData = array_merge($metaData, [
+                    ['key' => '_is_pos_subscription', 'value' => 'true'],
+                    ['key' => '_subscription_title', 'value' => $validated['subscription_title'] ?? ''],
+                    ['key' => '_subscription_end_date', 'value' => $validated['subscription_end_date'] ?? ''],
+                    ['key' => '_subscription_start_date', 'value' => now()->toDateString()],
+                ]);
+            }
+
+            if (!empty($metaData)) {
+                $data['meta_data'] = $metaData;
             }
 
             $order = Order::create($data);
@@ -280,6 +326,88 @@ class AdminWooCommerceController extends Controller
 
             return response()->json(['error' => $e->getMessage()], 422);
         }
+    }
+
+    public function calendarSubscriptions(): JsonResponse
+    {
+        try {
+            $events = $this->fetchSubscriptionEvents();
+
+            return response()->json(['data' => $events]);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['data' => []]);
+        }
+    }
+
+    public function subscriptionsCalendarPage(): Response
+    {
+        $events = $this->fetchSubscriptionEvents();
+
+        return Inertia::render('admin/woocommerce/subscriptions/calendar', [
+            'events' => $events,
+        ]);
+    }
+
+    private function fetchSubscriptionEvents(): array
+    {
+        $orders = Order::all([
+            'per_page' => 100,
+            'meta_key' => '_is_pos_subscription',
+            'meta_value' => 'true',
+        ]);
+
+        return collect($orders)->map(function ($o) {
+            $o = (array) $o;
+            $billing = (array) ($o['billing'] ?? []);
+
+            return [
+                'id' => $o['id'] ?? 0,
+                'title' => $this->findMeta($o, '_subscription_title') ?? 'Suscripción #'.$o['number'],
+                'start' => $this->findMeta($o, '_subscription_start_date') ?? $o['date_created'],
+                'end' => $this->findMeta($o, '_subscription_end_date'),
+                'order_number' => $o['number'] ?? '',
+                'total' => $o['total'] ?? '0.00',
+                'customer_name' => ($billing['first_name'] ?? '') . ' ' . ($billing['last_name'] ?? ''),
+            ];
+        })->filter(fn ($e) => !empty($e['end']))->values()->toArray();
+    }
+
+    private function findMeta($order, string $key): ?string
+    {
+        $order = (array) $order;
+        $meta = $order['meta_data'] ?? [];
+
+        if (is_array($meta)) {
+            foreach ($meta as $m) {
+                $m = (array) $m;
+                if (($m['key'] ?? null) === $key) {
+                    return $m['value'] ?? null;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveContactProfilePic(array $order): ?string
+    {
+        $contactId = $this->findMeta($order, '_contact_id');
+        if (!$contactId) {
+            return null;
+        }
+
+        $contact = Contact::find((int) $contactId);
+        if (!$contact || !$contact->profile_pic_url) {
+            return null;
+        }
+
+        if (str_starts_with($contact->profile_pic_url, 'http')) {
+            return $contact->profile_pic_url;
+        }
+
+        return asset('storage/' . $contact->profile_pic_url);
     }
 
     public function posContacts(Request $request): JsonResponse
@@ -326,17 +454,27 @@ class AdminWooCommerceController extends Controller
         try {
             $orders = Order::all(['per_page' => 10, 'orderby' => 'date', 'order' => 'desc']);
 
-            $formatted = collect($orders)->map(fn ($o) => [
-                'id' => $o['id'] ?? 0,
-                'number' => $o['number'] ?? '',
-                'status' => $o['status'] ?? '',
-                'total' => $o['total'] ?? '0.00',
-                'date_created' => $o['date_created'] ?? '',
-                'line_items' => collect($o['line_items'] ?? [])->map(fn ($item) => [
-                    'name' => $item['name'] ?? '',
-                    'quantity' => $item['quantity'] ?? 0,
-                ])->values()->toArray(),
-            ]);
+            $formatted = collect($orders)->map(function ($o) {
+                $o = (array) $o;
+
+                $lineItems = collect($o['line_items'] ?? [])
+                    ->map(fn ($item) => (array) $item)
+                    ->map(fn ($item) => [
+                        'name' => $item['name'] ?? '',
+                        'quantity' => $item['quantity'] ?? 0,
+                    ])
+                    ->values()
+                    ->toArray();
+
+                return [
+                    'id' => $o['id'] ?? 0,
+                    'number' => $o['number'] ?? '',
+                    'status' => $o['status'] ?? '',
+                    'total' => $o['total'] ?? '0.00',
+                    'date_created' => $o['date_created'] ?? '',
+                    'line_items' => $lineItems,
+                ];
+            });
 
             return response()->json(['data' => $formatted]);
         } catch (\Exception $e) {
@@ -384,52 +522,12 @@ class AdminWooCommerceController extends Controller
         }
     }
 
-    public function orderShow(int $id): Response|JsonResponse
+    public function orderShow(int $id): JsonResponse
     {
-        if (request()->wantsJson()) {
-            try {
-                $order = Order::withOriginal()->find($id);
-
-                return response()->json(['data' => $this->formatOrder($order)]);
-            } catch (\Exception $e) {
-                report($e);
-
-                return response()->json(['error' => $e->getMessage()], 422);
-            }
-        }
-
-        return Inertia::render('admin/woocommerce/orders/show', ['orderId' => $id]);
-    }
-
-    public function customers(Request $request): Response|JsonResponse
-    {
-        if (!$request->wantsJson()) {
-            return Inertia::render('admin/woocommerce/customers/index');
-        }
-
         try {
-            $perPage = (int) $request->input('per_page', 20);
-            $page = (int) $request->input('page', 1);
-            $search = $request->input('search', '');
-            $sortBy = $request->input('sort_by', 'date');
-            $sortDir = $request->input('sort_dir', 'desc');
+            $order = Order::withOriginal()->find($id);
 
-            $options = [
-                'orderby' => $sortBy,
-                'order' => $sortDir,
-            ];
-
-            if ($search) {
-                $options['search'] = $search;
-            }
-
-            if ($request->has('role')) {
-                $options['role'] = $request->input('role');
-            }
-
-            $result = Customer::paginate($perPage, $page, $options);
-
-            return response()->json($result);
+            return response()->json(['data' => $this->formatOrder($order)]);
         } catch (\Exception $e) {
             report($e);
 
@@ -437,25 +535,28 @@ class AdminWooCommerceController extends Controller
         }
     }
 
-    public function customerShow(int $id): Response|JsonResponse
+    public function orderDestroy(int $id): JsonResponse
     {
-        if (request()->wantsJson()) {
-            try {
-                $customer = Customer::withOriginal()->find($id);
+        try {
+            Order::delete($id, ['force' => true]);
 
-                return response()->json(['data' => $customer]);
-            } catch (\Exception $e) {
-                report($e);
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            report($e);
 
-                return response()->json(['error' => $e->getMessage()], 422);
-            }
+            return response()->json(['error' => $e->getMessage()], 422);
         }
-
-        return Inertia::render('admin/woocommerce/customers/show', ['customerId' => $id]);
     }
 
     private function formatOrder($order): array
     {
+        $order = (array) $order;
+
+        $mapItems = fn ($items, $fn) => collect(is_array($items) ? $items : [])
+            ->map(fn ($i) => $fn((array) $i))
+            ->values()
+            ->toArray();
+
         return [
             'id' => $order['id'] ?? 0,
             'number' => $order['number'] ?? '',
@@ -471,9 +572,9 @@ class AdminWooCommerceController extends Controller
             'payment_method' => $order['payment_method'] ?? '',
             'payment_method_title' => $order['payment_method_title'] ?? '',
             'customer_id' => $order['customer_id'] ?? 0,
-            'billing' => $order['billing'] ?? [],
-            'shipping' => $order['shipping'] ?? [],
-            'line_items' => collect($order['line_items'] ?? [])->map(fn ($item) => [
+            'billing' => (array) ($order['billing'] ?? []),
+            'shipping' => (array) ($order['shipping'] ?? []),
+            'line_items' => $mapItems($order['line_items'] ?? [], fn ($item) => [
                 'id' => $item['id'] ?? 0,
                 'name' => $item['name'] ?? '',
                 'product_id' => $item['product_id'] ?? 0,
@@ -483,20 +584,27 @@ class AdminWooCommerceController extends Controller
                 'subtotal' => $item['subtotal'] ?? '0.00',
                 'total' => $item['total'] ?? '0.00',
                 'sku' => $item['sku'] ?? '',
-            ])->values()->toArray(),
-            'shipping_lines' => collect($order['shipping_lines'] ?? [])->map(fn ($s) => [
+            ]),
+            'shipping_lines' => $mapItems($order['shipping_lines'] ?? [], fn ($s) => [
                 'id' => $s['id'] ?? 0,
                 'method_title' => $s['method_title'] ?? '',
                 'method_id' => $s['method_id'] ?? '',
                 'total' => $s['total'] ?? '0.00',
-            ])->values()->toArray(),
-            'coupon_lines' => collect($order['coupon_lines'] ?? [])->map(fn ($c) => [
+            ]),
+            'coupon_lines' => $mapItems($order['coupon_lines'] ?? [], fn ($c) => [
                 'id' => $c['id'] ?? 0,
                 'code' => $c['code'] ?? '',
                 'discount' => $c['discount'] ?? '0.00',
-            ])->values()->toArray(),
+            ]),
             'customer_note' => $order['customer_note'] ?? '',
             'note' => $order['note'] ?? '',
+            'meta_data' => $order['meta_data'] ?? [],
+            'subscription_meta' => [
+                'title' => $this->findMeta($order, '_subscription_title'),
+                'start_date' => $this->findMeta($order, '_subscription_start_date'),
+                'end_date' => $this->findMeta($order, '_subscription_end_date'),
+            ],
+            'contact_profile_pic_url' => $this->resolveContactProfilePic($order),
         ];
     }
 }

@@ -24,7 +24,7 @@
 
 ## Architecture
 
-- **All pages are Inertia pages** in `resources/js/pages/`. Route → page name mapping in `routes/web.php` + `routes/settings.php`.
+- **All pages are Inertia pages** in `resources/js/pages/`. Route → page name mapping in `routes/web.php`.
 - **Wayfinder** generates `resources/js/routes/` and `resources/js/actions/` (gitignored). After adding a named route, regenerate with `php artisan wayfinder:generate`.
 - **`@/`** maps to `resources/js/` (tsconfig paths).
 - **Layouts** auto-assigned by page name in `resources/js/app.tsx`: `welcome` → none, `auth/*` → AuthLayout, `settings/*` → AppLayout+SettingsLayout, rest → AppLayout.
@@ -33,6 +33,7 @@
 - **`package.json`** has `"type": "module"` — CommonJS config files need `.cjs` extension (e.g. `ecosystem.config.cjs`).
 - **`ecosystem.config.example.cjs`** — example PM2 config; copy to `ecosystem.config.cjs` and adjust `interpreter` path if needed.
 - **CSRF token**: `<meta name="csrf-token">` added to `resources/views/app.blade.php` for manual fetch requests.
+- **Only native Laravel route files**: `web.php`, `api.php`, `console.php`, `channels.php` (no custom `require` files).
 
 ## Environment quirks
 
@@ -41,6 +42,31 @@
 - Reverb runs on port **2002** (configurable via `REVERB_SERVER_PORT`). nginx proxies `/app` to the Reverb server.
 - Echo + Pusher JS for frontend WebSocket client. Pusher client needs `cluster` option even with Reverb.
 - Reverb requires `pcntl` extension. Ensure `pcntl_*` functions are NOT in `disable_functions` in your PHP CLI php.ini.
+
+## Module Relationships (diagram)
+
+```
+Evolution API (WhatsApp)
+    │
+    ├── Webhooks ──→ EvolutionWebhooks (raw log)
+    │   └── messages.upsert ──→ Contact (upsert by phone)
+    │                           └── Conversation (firstOrCreate by channel_id)
+    │                               └── Message (create with text/media)
+    │
+    └── REST API (fetchInstances, sendText, sendMedia, etc.)
+        │
+        ├── Entradas Chat UI
+        │   ├── GET /{instance}/chats    → conversations + contacts + messages (local)
+        │   ├── GET /{instance}/messages → messages (local)
+        │   └── POST /{instance}/send    → Evolution API + Message::create (local)
+        │
+        ├── Medios (file upload)
+        │   └── POST /media/upload → storage/app/public/
+        │       └── Used by Entradas for attach/audio send
+        │
+        └── Contacts Import
+            └── scanInstances → findContacts → importBatch → Contact::create
+```
 
 ## Modules
 
@@ -52,109 +78,159 @@
 - **Commands**: `pm2 restart reverb`, `pm2 start ecosystem.config.cjs`
 
 ### 2. Evolution Instances (Admin read-only dashboard)
-- **Route**: `/admin/evolution-instances` → `routes/admin.php`
-- **Controller**: `app/Http/Controllers/Admin/AdminEvolutionInstanceController.php`
-- **Service**: `app/Services/EvolutionApiService.php` — HTTP client wrapping Evolution API:
-  - `fetchInstances()`, `fetchProfile()`, `fetchProfilePictureUrl()`, `fetchBusinessProfile()`
-  - `findContacts()`, `fetchGroups()` (120s timeout)
-  - `whatsappNumbers(instance, number)` — verifica si un número existe en WhatsApp
+- **Route**: `/admin/evolution-instances` → `AdminEvolutionInstanceController`
+- **Service**: `app/Services/EvolutionApiService.php` — HTTP client wrapping Evolution API
 - **Config**: `config/evolution.php` — reads `EVOLUTION_SERVER_URL` and `EVOLUTION_API_KEY` from `.env`
-- **Page**: `resources/js/pages/admin/evolution-instances/index.tsx` — cards grid with status badge, profile pic, stats
+- **Page**: `resources/js/pages/admin/evolution-instances/index.tsx` — cards grid with status badge, profile pic, stats + webhook log tab
 - **No DB** — data fetched live from Evolution API
-- **Sidebar**: "Evolution Instances" (Smartphone icon) in `mainNavItems`
+- **Sidebar**: "Evolution API" inside Configuración submenu
 
-### 3. Evolution Webhooks (webhook receiver + log)
-- **Route**: `POST /webhooks/evolution` → `routes/webhooks.php` (public, validates apikey header)
+### 3. Evolution Webhooks (receiver + processor)
+- **Route**: `POST /webhooks/evolution` → `api.php`
 - **Controller**: `app/Http/Controllers/Webhooks/EvolutionWebhookController.php`
-- **Model**: `app/Models/EvolutionWebhook` — `instance`, `event`, `payload` (JSON cast)
-- **DataTable (Yajra)**: `app/DataTables/EvolutionWebhooksDataTable.php`
-- **Migration**: `create_evolution_webhooks_table` — `id`, `instance`, `event`, `payload` (json), timestamps
-- **Page tab**: "Webhook Log" inside `admin/evolution-instances/index.tsx` — expandable rows showing full JSON
-- Fetched via same Yajra endpoint (`GET /admin/evolution-instances` with DataTables query params)
+- **Model**: `EvolutionWebhook` — raw log (`instance`, `event`, `payload` JSON)
+- **Behavior**:
+  - Stores ALL incoming webhooks in `evolution_webhooks` table (raw audit trail)
+  - Filters: processes only `messages.upsert` events
+  - Skips: `status@broadcast` (stories), empty message content (delivery receipts)
+  - On valid `messages.upsert`:
+    1. Extracts `remoteJid`, `pushName`, `key.fromMe`, `messageType`, text/media
+    2. **Contact**: `updateOrCreate(['phone' => $phone])` — centralized in `contacts` table
+    3. **Conversation**: `firstOrCreate(['channel_id' => $remoteJid])` — links contact_id + instance
+    4. **Message**: `Message::create()` — saves text, media_url, input_output flag
+    5. **Media**: downloads Evolution API URLs to `storage/app/public/` (same as Medios)
 
-### 4. Contacts (Admin CRUD, standalone)
-- **Route prefix**: `/admin/contacts`, defined in `routes/admin.php`
-- **Controller**: `app/Http/Controllers/Admin/AdminContactController.php`:
-  - `index` (Yajra), `create`, `store`, `show` (JSON detail + groups/members), `edit`, `update`, `destroy`
-  - `fetchFromEvolution` — verifies number with `whatsappNumbers` first, then fetches profile/business data
-  - `scanInstances`, `importBatch`, `scanGroups`, `importGroupMembers`
-- **Model**: `app/Models/Contact`:
-  - Fields: `name`, `phone` (nullable, unique for individuals), `whatsapp_id` (unique for groups), `email`, `notes`, `profile_pic_url`, `is_active`, `country` (ISO 3166-1 alpha-2), `type` ('individual'|'group'), `instance`, `group_jids` (json, array of group JIDs for members), `participant_count`, `is_community`, `owner`, `last_synced_at`
-  - `Contact::detectCountry(?string $phone): ?string` — usa `giggsey/libphonenumber-for-php` para detectar país del número
-  - `booted()` — auto-detecta `country` en `saving` event cuando cambia `phone`
-  - Scopes: `individuals()`, `groups()`
-  - Query builders: `groupContacts()` (groups matching `group_jids`), `members()` (individuals in a group)
-- **Form Requests**:
-  - `StoreContactRequest.php` — `name required`, groups validate `whatsapp_id` unique instead of `phone`
-  - `UpdateContactRequest.php` — same + ignores current contact ID
-- **DataTable (Yajra)**: `app/DataTables/ContactsDataTable.php`:
-  - Server-side processing with search, sort, pagination
-  - `editColumn('profile_pic_url')` transforms internal storage paths via `asset()`
-  - `editColumn('country')` renders flag emoji + code
-  - `rawColumns(['action', 'country'])`
-  - Filters via `query()` → `request()->input('filters.*')` for country, type, is_active
-  - Default sort by `id DESC`
-- **Migrations**:
-  - `create_contacts_table` + `add_unique_phone_to_contacts_table` + `add_whatsapp_id_to_contacts_table`
-  - `add_type_to_contacts_table` (adds `type`, `instance`, `group_jids`, `participant_count`, `is_community`, `owner`, `last_synced_at`; makes `phone` nullable)
-  - `add_country_to_contacts_table` — `country` VARCHAR(4) nullable after `is_active`
-- **Commands**: `php artisan contacts:detect-countries` — parsea números existentes y actualiza `country`
-- **Pages** (Inertia/React):
-  - `resources/js/pages/admin/contacts/index.tsx` — DataTable-style UI:
-    - "Show entries" selector (10/25/50/100), search, sortable headers, page navigation
-    - 3 dropdown filters: Country (dynamic from DB), Type (Individual/Group), Status (Active/Inactive) + Clear button
-    - Columns: ID, Name (+avatar), Phone, Email, Active, Country (🇧🇴 BO), Created, Type badge, Actions
-    - Click any row opens `ContactDetailSheet` (right-side panel with full details)
-    - `ConfirmDialog` for delete
-  - `resources/js/pages/admin/contacts/create.tsx` — 4 tabs:
-    - **Manual** — form with name, phone, email, notes, active
-    - **From Evolution** — enter number → barra de progreso (verifying → fetching → downloading) → auto-fills form + country flag
-    - **Import** — 2-step bulk import via `findContacts`
-    - **From Groups** — scan via `fetchAllGroups?getParticipants=true`, select groups → import one-by-one sequentially with real-time progress bar
-  - `resources/js/pages/admin/contacts/edit.tsx` — groups: read-only info card (name, photo, JID, country flag, owner, members count, description). Individuals: same UI as create but pre-filled.
-- **ContactDetailSheet**: `resources/js/components/contacts/contact-detail-sheet.tsx`:
-  - shadcn Sheet, right side, opens on row click in index
-  - Fetches `GET /admin/contacts/{id}` for full details + associated groups/members
-  - Shows: avatar, name, country flag, type badge, phone, email, WhatsApp ID, instance, owner, status, created date
-  - For individuals: linked groups list. For groups: scrollable members list
-- **Service**: `app/Services/EvolutionApiService.php`
-- **Storage**: `php artisan storage:link` — images served from `/storage/`; all files stored flat in `storage/app/public/` root (no subdirectories)
-- **DB migration**: old paths `contacts/uuid.jpg` migrated to `uuid.jpg` via REPLACE
-- **CSRF excluded**: `admin/contacts/scan-groups`, `admin/contacts/import-group-members`
-- **ConfirmDialog**: `resources/js/components/confirm-dialog.tsx` + `resources/js/hooks/use-confirm-dialog.ts` — shadcn Dialog replacing native `confirm()`
+### 4. Contacts (Admin CRUD + sync center)
+- **Route prefix**: `/admin/contacts` → `AdminContactController`
+- **Model**: `app/Models/Contact` (central contact repository for ALL channels)
+  - Fields: `name`, `phone`, `whatsapp_id`, `email`, `notes`, `profile_pic_url`, `is_active`, `country`, `type` (individual/group), `instance`, `group_jids`, `participant_count`, `is_community`, `owner`, `last_synced_at`, `is_business`, `wa_status`, `description`, `website`
+  - `detectCountry()` uses `giggsey/libphonenumber-for-php`
+  - auto-detecta `country` en `saving` event
+  - Scopes: `individuals()`, `groups()`; Query builders: `groupContacts()`, `members()`
+- **DataTable (Yajra)**: `app/DataTables/ContactsDataTable.php`
+- **Import flow**: `scanInstances` → `findContacts` (Evolution API) → `importBatch` → `Contact::create`
+- **Key rule**: ALL contacts are centralized here — webhooks, import, and manual create all use the same `Contact` model
 - **Sidebar**: "Contacts" (BookUser icon) in `mainNavItems`
 
 ### 5. Medios (File manager, no DB)
-- **Route prefix**: `/admin/media`, defined in `routes/admin.php`
-- **Controller**: `app/Http/Controllers/Admin/AdminMediaController.php` — index (Inertia), list (JSON paginated), upload, destroy
-- **Model**: None — files scanned directly from filesystem
-- **Storage**: `storage/app/public/` flat root — same folder as contact photos
-- **Frontend**: `resources/js/pages/admin/media/index.tsx` — cards grid (responsive 2-5 cols), infinite scroll via IntersectionObserver, click card opens right Sheet (shadcn) with details:
-  - Preview (image thumbnail or MIME icon)
-  - Metadata: Type, Size, Modified, URL
-  - Actions: Copy URL (clipboard), Download, Delete (ConfirmDialog)
-- **Upload**: single file, max 100MB, via file picker
-- **Pagination**: server-side JSON with 20 items per page, ordered by mtime desc
-- **CSRF**: `<meta name="csrf-token">` added to `resources/views/app.blade.php`
+- **Route prefix**: `/admin/media` → `AdminMediaController`
+- **Storage**: `storage/app/public/` flat root (UUID filenames)
+- **Frontend**: `resources/js/pages/admin/media/index.tsx` — cards grid, infinite scroll, Sheet preview
+- **Used by**: Entradas chat for file/audio attachment upload before sending via Evolution API
 - **Sidebar**: "Medios" (Images icon) in `mainNavItems`
-- **Wayfinder routes**: `@/routes/admin/media` — exports `index`, `list`, `upload`, `destroy`
 
-### 6. Users (Admin CRUD)
-- **Route prefix**: `/admin/users`, defined in `routes/admin.php`
-- **Controller**: `app/Http/Controllers/Admin/AdminUserController.php`
-- **Middleware**: `app/Http/Middleware/AdminMiddleware.php` — checks `user.is_admin`, registered as alias `admin` in `bootstrap/app.php`
-- **DataTable (yajra)**: `app/DataTables/UsersDataTable.php` — server-side processing; uses standard DataTables query params (`columns[i][data]`, `order[i][column]`, `search[value]`)
-- **Form Requests**: `StoreUserRequest`, `UpdateUserRequest` in `app/Http/Requests/Admin/`
-- **Pages** (Inertia/React): `resources/js/pages/admin/users/index.tsx` (fetch + sort + search + "Show entries" selector + pagination), `create.tsx`, `edit.tsx`
-- **Sidebar**: `resources/js/components/app-sidebar.tsx` — "Users" in `mainNavItems`
-- **Layout**: `admin/*` → AppLayout (registered in `resources/js/app.tsx`)
-- **Wayfinder routes**: `@/routes/admin/users` — exports `index`, `create`, `store`, `edit`, `update`, `destroy`
-- **Auth guard**: `is_admin` boolean on `users` table; shared prop `auth.can.access_admin` via `HandleInertiaRequests`
+### 6. Conversations + Messages (local chat storage)
+- **No DB tables** — data fetched live from Evolution API (deprecated, but code kept for reference)
+
+#### `conversations` table
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigIncrements | PK |
+| `channel_id` | string unique | remoteJid (`591xxx@s.whatsapp.net`) |
+| `contact_id` | bigint FK → contacts | link to Contact |
+| `instance` | string nullable | `entel1`, `tigo1`, etc |
+| `timestamps` | | created_at, updated_at |
+
+#### `messages` table
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigIncrements | PK |
+| `channel_id` | string index | remoteJid |
+| `input_output` | boolean | true=entrada, false=salida |
+| `message_type` | string nullable | `conversation`, `imageMessage`, `audioMessage`, `documentMessage`, `extendedTextMessage` |
+| `text` | text nullable | caption or conversation text |
+| `media_url` | string nullable | filename in `storage/app/public/` (Medios root) |
+| `timestamps` | | created_at, updated_at |
+
+- **Message rendering**: `audioMessage` → `<audio>` player, `imageMessage` → `<img>`, others → download link
+- **No `message_id`, `data` (JSON), `source`, `timestamp` epoch** — intentionally minimal and channel-agnostic
+
+### 7. Entradas (WhatsApp Chat UI)
+- **Route prefix**: `/admin/entradas/{instance}` → `AdminEntradaController`
+- **Service**: `EvolutionApiService` (sendText, sendMedia)
+- **Chat page**: `resources/js/pages/admin/entradas/chat.tsx` — split layout:
+  - Left: conversation list (searchable, ordered by last message)
+  - Right: messages + send input with attach/audio/text
+- **Endpoints**:
+  - `GET /{instance}` → Inertia page
+  - `GET /{instance}/chats` → JSON: conversations with contact info + last message
+  - `GET /{instance}/messages?channel_id=...` → JSON: messages for a channel
+  - `POST /{instance}/send` → accepts `number`, `text`, `channel_id`, `media_url`, `media_type`, `media_mimetype`, `file_name`
+    - If `media_url` present → `sendMedia()` (Evolution API) → saves local Message
+    - If text only → `sendText()` (Evolution API) → saves local Message
+- **File/audio send**:
+  1. User picks file or records audio
+  2. Uploads to Medios (`POST /admin/media/upload`) → gets filename
+  3. Calls `POST /{instance}/send` with `media_url` = filename from Medios
+  4. Backend calls `sendMedia()` with public URL (`asset('storage/'.$filename)`)
+  5. Evolution API downloads from the URL and sends to WhatsApp
+- **Sidebar**: "Entradas" → dynamic submenus per instance (loaded from shared `evolutionInstances` prop)
+- **Shared prop**: `HandleInertiaRequests` shares `evolutionInstances` globally
+
+### 8. Evolution API Service
+- **File**: `app/Services/EvolutionApiService.php`
+- **Methods**:
+  - `fetchInstances()` — `GET /instance/fetchInstances`
+  - `fetchProfile(instance, number)` — `POST /chat/fetchProfile`
+  - `fetchProfilePictureUrl()` — `POST /chat/fetchProfilePictureUrl`
+  - `fetchBusinessProfile()` — `POST /chat/fetchBusinessProfile`
+  - `whatsappNumbers()` — `POST /chat/whatsappNumbers`
+  - `findContacts(instance)` — `POST /chat/findContacts`
+  - `fetchChats(instance)` — `GET /chat/findChats` (deprecated for Entradas, now uses local tables)
+  - `fetchMessages(instance, remoteJid, limit)` — `POST /chat/fetchMessages` (deprecated for Entradas)
+  - `sendText(instance, number, text)` — `POST /message/sendText`
+  - `sendMedia(instance, number, mediaType, mediaUrl, mimetype, caption?, fileName?)` — `POST /message/sendMedia`
+  - `fetchGroups(instance)` — `GET /group/fetchAllGroups`
+
+### 9. Users (Admin CRUD)
+- **Route prefix**: `/admin/users` → `AdminUserController`
+- **DataTable (yajra)**: `app/DataTables/UsersDataTable.php`
+- **Sidebar**: "Users" inside Configuración
+- **Auth guard**: `is_admin` boolean on `users` table; shared prop `auth.can.access_admin`
+
+### 10. WooCommerce (POS + Orders + Products + Calendar)
+- **Controller**: `app/Http/Controllers/Admin/AdminWooCommerceController.php`
+- **All routes** in `routes/admin.php` under `/admin/woocommerce/*`
+- **WooCommerce API** via `codexshaper/laravel-woocommerce` facade (`Order`, `Product`, `Customer`, etc.)
+- **Important**: WooCommerce REST API returns `stdClass`, not arrays — cast to `(array)` before `$obj['key']` access in PHP 8+
+- **POS** (`/admin/woocommerce/pos` → `resources/js/pages/admin/woocommerce/pos.tsx`):
+  - Full-featured POS with variable products, coupons, subscription sale type
+  - Sale type toggle (Directa / Suscripción) with manual title + end date
+  - Subscription data stored as WooCommerce order meta (`_is_pos_subscription`, `_subscription_title`, `_subscription_end_date`, `_subscription_start_date`)
+  - Contact image via `_contact_id` WooCommerce meta → resolved from local `Contact` model
+  - Print ticket: uses `Blob` + `URL.createObjectURL` (not `document.write`) to avoid TrustedScript errors
+  - Calendar button + Dashboard button in product grid filters area
+- **Products** (`/admin/woocommerce/products` → `resources/js/pages/admin/woocommerce/products/index.tsx`):
+  - Table rows clickable → opens Sheet sidebar with product details (image, price, stock, categories, brands, tags, attributes, variations, delete)
+  - Read-only (no create/edit buttons), No page heading
+  - JSON endpoint: `GET /admin/woocommerce/products/{id}`
+- **Orders** (`/admin/woocommerce/orders` → `resources/js/pages/admin/woocommerce/orders/index.tsx`):
+  - Table rows clickable → opens Sheet sidebar with order details (billing, shipping, products, coupons, notes, subscription meta)
+  - Customer avatar shown in billing section (not header), Delete button with ConfirmDialog
+  - No page heading, No separate show page
+  - JSON endpoint: `GET /admin/woocommerce/orders/{id}`, `DELETE /admin/woocommerce/orders/{id}`
+- **Calendar** (`/admin/woocommerce/subscriptions/calendar` → `resources/js/pages/admin/woocommerce/subscriptions/calendar.tsx`):
+  - FullCalendar dayGridMonth, Event click opens Sheet with order details
+  - Customer avatar shown in Cliente section (not header), JSON endpoint: `GET /admin/woocommerce/subscriptions/calendar-data`
+- **Dashboard** (`/admin/woocommerce` → `resources/js/pages/admin/woocommerce/index.tsx`):
+  - Stats cards, No page heading
+- **Customers**: Removed entirely
+- **Sidebar**: WooCommerce section with POS, Products, Orders (no Dashboard child)
+- **No local DB tables** — all data via WooCommerce REST API
+
+## WooCommerce Key Conventions
+
+- `formatOrder()` helper always casts `(array)` before array access on stdClass
+- Subscription metadata: `_is_pos_subscription`, `_subscription_title`, `_subscription_end_date`, `_subscription_start_date`
+- Contact photo: stored as `_contact_id` meta, resolved via `Contact` model `profile_pic_url`
+- No Inertia page for show views — all detail viewing via Sheet sidebars fetched client-side with `fetch()`
+- Delete operations use `fetch()` with `DELETE` method + `X-CSRF-TOKEN` header (not Inertia `router.delete()`)
+- `Customer` facade no longer imported (customers removed)
 
 ## Testing
 
-- **Pest** framework (not plain PHPUnit). Tests in `tests/Feature/` and `tests/Unit/`.
-- Feature tests auto-use `RefreshDatabase` trait (defined in `tests/Pest.php`).
+- **Pest** framework. Tests in `tests/Feature/` and `tests/Unit/`.
+- Feature tests auto-use `RefreshDatabase` trait.
 - SQLite in-memory database in tests (`phpunit.xml`).
 - No front-end tests exist.
 

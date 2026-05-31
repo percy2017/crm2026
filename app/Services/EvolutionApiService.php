@@ -113,6 +113,87 @@ class EvolutionApiService
         return $response->json() ?? [];
     }
 
+    public function fetchChats(string $instance): array
+    {
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(30)
+            ->get("/chat/findChats/{$instance}");
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function fetchMessages(string $instance, string $remoteJid, int $limit = 50): array
+    {
+        $response = $this->client()->post("/chat/fetchMessages/{$instance}", [
+            'remoteJid' => $remoteJid,
+            'limit' => $limit,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function sendText(string $instance, string $number, string $text): array
+    {
+        $response = $this->client()->post("/message/sendText/{$instance}", [
+            'number' => $number,
+            'text' => $text,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function sendMedia(string $instance, string $number, string $mediaType, string $mediaUrl, string $mimetype, ?string $caption = null, ?string $fileName = null): array
+    {
+        $payload = [
+            'number' => $number,
+            'mediatype' => $mediaType,
+            'mimetype' => $mimetype,
+            'media' => $mediaUrl,
+        ];
+
+        if ($caption) {
+            $payload['caption'] = $caption;
+        }
+
+        if ($fileName) {
+            $payload['fileName'] = $fileName;
+        }
+
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(120)
+            ->post("/message/sendMedia/{$instance}", $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
     public function fetchGroups(string $instance): array
     {
         $response = Http::baseUrl($this->serverUrl)

@@ -23,7 +23,7 @@
 - SQLite (extensiones `pdo_sqlite` + `sqlite3`) o MySQL
 - Extensión `pcntl` (para Reverb) — NO debe estar en `disable_functions`
 
-## Instalación
+> **SQLite recomendado** — no requiere configuración de servidor de base de datos. También soporta MySQL si lo prefieres.
 
 ```bash
 # 1. Clonar
@@ -39,7 +39,7 @@ cp .env.example .env
 # 4. Generar APP_KEY
 php artisan key:generate
 
-# 5. Crear base de datos SQLite (omitir si usas MySQL)
+# 5. Crear base de datos SQLite (recomendado)
 touch database/database.sqlite
 
 # 6. Link de storage
@@ -62,6 +62,8 @@ php artisan config:cache
 Para funciones en tiempo real, inicia Reverb con PM2:
 
 ```bash
+cp ecosystem.config.example.cjs ecosystem.config.cjs
+# Editar ecosystem.config.cjs si la ruta de php es diferente
 pm2 start ecosystem.config.cjs
 ```
 
@@ -92,7 +94,7 @@ location /app {
 > sed -i 's/^disable_functions =.*/disable_functions =/' /etc/php/8.4/cli/php.ini
 > ```
 
-### Si usas MySQL
+### Si prefieres MySQL en vez de SQLite
 
 Cambia en `.env`:
 
