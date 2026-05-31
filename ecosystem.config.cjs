@@ -4,7 +4,7 @@ module.exports = {
       name: 'reverb',
       script: 'artisan',
       args: 'reverb:start --debug',
-      interpreter: '/usr/bin/php8.4',
+      interpreter: '/usr/bin/php8.5',
       watch: false,
       instances: 1,
       autorestart: true,

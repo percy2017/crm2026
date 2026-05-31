@@ -29,3 +29,4 @@ yarn-error.log
 /.zed
 /database/database.sqlite
 *.local
+ecosystem.config.cjs

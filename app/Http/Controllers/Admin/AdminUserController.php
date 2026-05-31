@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Hash;
 use Inertia\Inertia;
 use Inertia\Response;
+use Spatie\Permission\Models\Role;
 
 class AdminUserController extends Controller
 {
@@ -26,17 +27,22 @@ class AdminUserController extends Controller
 
     public function create(): Response
     {
-        return Inertia::render('admin/users/create');
+        return Inertia::render('admin/users/create', [
+            'roles' => Role::all()->pluck('name'),
+        ]);
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
     {
-        User::create([
+        $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
-            'is_admin' => $request->boolean('is_admin'),
         ]);
+
+        if ($roles = $request->roles) {
+            $user->assignRole($roles);
+        }
 
         return redirect()->route('admin.users.index')
             ->with('success', 'User created successfully.');
@@ -46,6 +52,8 @@ class AdminUserController extends Controller
     {
         return Inertia::render('admin/users/edit', [
             'user' => $user,
+            'roles' => Role::all()->pluck('name'),
+            'userRoles' => $user->getRoleNames(),
         ]);
     }
 
@@ -54,7 +62,6 @@ class AdminUserController extends Controller
         $data = [
             'name' => $request->name,
             'email' => $request->email,
-            'is_admin' => $request->boolean('is_admin'),
         ];
 
         if ($request->filled('password')) {
@@ -62,6 +69,10 @@ class AdminUserController extends Controller
         }
 
         $user->update($data);
+
+        if ($request->has('roles')) {
+            $user->syncRoles($request->roles ?? []);
+        }
 
         return redirect()->route('admin.users.index')
             ->with('success', 'User updated successfully.');

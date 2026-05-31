@@ -1,10 +1,16 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminAiAgentController;
 use App\Http\Controllers\Admin\AdminContactController;
 use App\Http\Controllers\Admin\AdminEntradaController;
 use App\Http\Controllers\Admin\AdminEvolutionInstanceController;
+use App\Http\Controllers\Admin\AdminDealController;
 use App\Http\Controllers\Admin\AdminMediaController;
+use App\Http\Controllers\Admin\AdminPipelineStageController;
+use App\Http\Controllers\Admin\AdminRoleController;
 use App\Http\Controllers\Admin\AdminUserController;
+use App\Http\Controllers\Admin\AdminWebChatController;
+use App\Http\Controllers\Admin\AdminWebWidgetController;
 use App\Http\Controllers\Admin\AdminWooCommerceController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
@@ -40,12 +46,31 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::redirect('/', '/dashboard')->name('index');
     Route::get('/users', [AdminUserController::class, 'index'])->name('users.index');
     Route::get('/users/create', [AdminUserController::class, 'create'])->name('users.create');
     Route::post('/users', [AdminUserController::class, 'store'])->name('users.store');
     Route::get('/users/{user}/edit', [AdminUserController::class, 'edit'])->name('users.edit');
     Route::put('/users/{user}', [AdminUserController::class, 'update'])->name('users.update');
     Route::delete('/users/{user}', [AdminUserController::class, 'destroy'])->name('users.destroy');
+
+    Route::get('/roles', [AdminRoleController::class, 'index'])->name('roles.index');
+    Route::post('/roles', [AdminRoleController::class, 'store'])->name('roles.store');
+    Route::put('/roles/{role}', [AdminRoleController::class, 'update'])->name('roles.update');
+    Route::delete('/roles/{role}', [AdminRoleController::class, 'destroy'])->name('roles.destroy');
+
+    Route::get('/deals', [AdminDealController::class, 'index'])->name('deals.index');
+    Route::post('/deals', [AdminDealController::class, 'store'])->name('deals.store');
+    Route::get('/deals/{deal}', [AdminDealController::class, 'show'])->name('deals.show');
+    Route::put('/deals/{deal}', [AdminDealController::class, 'update'])->name('deals.update');
+    Route::post('/deals/{deal}/move', [AdminDealController::class, 'moveStage'])->name('deals.move');
+    Route::delete('/deals/{deal}', [AdminDealController::class, 'destroy'])->name('deals.destroy');
+
+    Route::get('/pipeline-stages', [AdminPipelineStageController::class, 'index'])->name('pipeline-stages.index');
+    Route::post('/pipeline-stages', [AdminPipelineStageController::class, 'store'])->name('pipeline-stages.store');
+    Route::put('/pipeline-stages/{pipelineStage}', [AdminPipelineStageController::class, 'update'])->name('pipeline-stages.update');
+    Route::delete('/pipeline-stages/{pipelineStage}', [AdminPipelineStageController::class, 'destroy'])->name('pipeline-stages.destroy');
+    Route::post('/pipeline-stages/reorder', [AdminPipelineStageController::class, 'reorder'])->name('pipeline-stages.reorder');
 
     Route::get('/evolution-instances', [AdminEvolutionInstanceController::class, 'index'])->name('evolution-instances.index');
 
@@ -80,6 +105,21 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::get('/woocommerce/orders', [AdminWooCommerceController::class, 'orders'])->name('woocommerce.orders');
     Route::get('/woocommerce/orders/{id}', [AdminWooCommerceController::class, 'orderShow'])->name('woocommerce.orders.show');
     Route::delete('/woocommerce/orders/{id}', [AdminWooCommerceController::class, 'orderDestroy'])->name('woocommerce.orders.destroy');
+
+    Route::post('/ai-agent/chat', [AdminAiAgentController::class, 'chat'])->name('ai-agent.chat');
+
+    Route::get('/web-widgets', [AdminWebWidgetController::class, 'index'])->name('web-widgets.index');
+    Route::post('/web-widgets', [AdminWebWidgetController::class, 'store'])->name('web-widgets.store');
+    Route::get('/web-widgets/{webWidget}', [AdminWebWidgetController::class, 'show'])->name('web-widgets.show');
+    Route::put('/web-widgets/{webWidget}', [AdminWebWidgetController::class, 'update'])->name('web-widgets.update');
+    Route::delete('/web-widgets/{webWidget}', [AdminWebWidgetController::class, 'destroy'])->name('web-widgets.destroy');
+
+    Route::get('/web-chat', [AdminWebChatController::class, 'index'])->name('web-chat.index');
+    Route::get('/web-chat/conversations', [AdminWebChatController::class, 'conversations'])->name('web-chat.conversations');
+    Route::get('/web-chat/conversations/{webConversation}/messages', [AdminWebChatController::class, 'messages'])->name('web-chat.messages');
+    Route::post('/web-chat/conversations/{webConversation}/send', [AdminWebChatController::class, 'send'])->name('web-chat.send');
+    Route::post('/web-chat/conversations/{webConversation}/assign', [AdminWebChatController::class, 'assign'])->name('web-chat.assign');
+    Route::post('/web-chat/conversations/{webConversation}/close', [AdminWebChatController::class, 'close'])->name('web-chat.close');
 
     Route::get('/contacts', [AdminContactController::class, 'index'])->name('contacts.index');
     Route::get('/contacts/create', [AdminContactController::class, 'create'])->name('contacts.create');

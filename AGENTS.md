@@ -7,6 +7,8 @@
 - Auth: Laravel Fortify (login/register/2FA/passkeys)
 - Realtime: Laravel Reverb (WebSocket, port 2002) via PM2
 - Frontend build: Vite 8, Rolldown
+- **AI**: Laravel AI SDK v0.7, Ollama (local LLM provider)
+- **Roles/Permissions**: Spatie `laravel-permission` v8 (`roles`, `permissions`, `model_has_roles`, etc.)
 
 ## Key commands
 
@@ -62,10 +64,26 @@ Evolution API (WhatsApp)
         │
         ├── Medios (file upload)
         │   └── POST /media/upload → storage/app/public/
-        │       └── Used by Entradas for attach/audio send
+        │       └── Used by Entradas and AI Agent for attach/audio send
         │
         └── Contacts Import
             └── scanInstances → findContacts → importBatch → Contact::create
+
+AI Agent (Ollama)
+    │
+    ├── CrmAgent ──→ instructions() from config/env
+    ├── Floating Button ──→ AppLayout (all admin pages)
+    └── Chat Panel ──→ Sheet with file/audio/text input
+        └── POST /admin/ai-agent/chat ──→ Ollama via AI SDK
+            └── Attachments uploaded via Medios
+
+Deals (Pipeline CRM)
+    │
+    ├── AdminDealController (CRUD + moveStage)
+    ├── AdminPipelineStageController (manage stages)
+    ├── Kanban Board (drag & drop, configurable stages)
+    ├── Table View (Yajra DataTable)
+    └── Manage Stages Dialog (add/edit/delete/reorder)
 ```
 
 ## Modules
@@ -186,11 +204,19 @@ Evolution API (WhatsApp)
 - **Route prefix**: `/admin/users` → `AdminUserController`
 - **DataTable (yajra)**: `app/DataTables/UsersDataTable.php`
 - **Sidebar**: "Users" inside Configuración
-- **Auth guard**: `is_admin` boolean on `users` table; shared prop `auth.can.access_admin`
+- **Auth guard**: `admin` role via Spatie; shared prop `auth.can.access_admin`
 
-### 10. WooCommerce (POS + Orders + Products + Calendar)
+### 10. Roles (Admin CRUD)
+- **Route prefix**: `/admin/roles` → `AdminRoleController`
+- **DataTable (Yajra)**: `app/DataTables/RolesDataTable.php` — includes `users_count`
+- **Page**: `resources/js/pages/admin/roles/index.tsx` — DataTable list + read-only Sheet for details + Dialog for create/edit
+- **Blade partial**: `resources/views/admin/roles/actions.blade.php` — DataTable action buttons
+- **Protected role**: `admin` role cannot be modified or deleted
+- **Sidebar**: "Roles" inside Configuración with `ShieldCheck` icon
+
+### 11. WooCommerce (POS + Orders + Products + Calendar)
 - **Controller**: `app/Http/Controllers/Admin/AdminWooCommerceController.php`
-- **All routes** in `routes/admin.php` under `/admin/woocommerce/*`
+- **All routes** in `routes/web.php` under `/admin/woocommerce/*`
 - **WooCommerce API** via `codexshaper/laravel-woocommerce` facade (`Order`, `Product`, `Customer`, etc.)
 - **Important**: WooCommerce REST API returns `stdClass`, not arrays — cast to `(array)` before `$obj['key']` access in PHP 8+
 - **POS** (`/admin/woocommerce/pos` → `resources/js/pages/admin/woocommerce/pos.tsx`):
@@ -226,6 +252,41 @@ Evolution API (WhatsApp)
 - No Inertia page for show views — all detail viewing via Sheet sidebars fetched client-side with `fetch()`
 - Delete operations use `fetch()` with `DELETE` method + `X-CSRF-TOKEN` header (not Inertia `router.delete()`)
 - `Customer` facade no longer imported (customers removed)
+
+### 12. Deals (Pipeline CRM)
+- **Route prefix**: `/admin/deals` → `AdminDealController`
+- **Controller**: `app/Http/Controllers/Admin/AdminDealController.php` (CRUD + moveStage)
+- **Stage management**: `app/Http/Controllers/Admin/AdminPipelineStageController.php` (index, store, update, destroy, reorder)
+- **Models**: `Pipeline`, `PipelineStage`, `Deal` (softDeletes)
+- **DataTable (Yajra)**: `app/DataTables/DealsDataTable.php` — includes contact_name, stage_name, assigned_name
+- **Defaults**:
+  - Single pipeline "Sales Pipeline" seeded with 5 stages: Nuevo, Cotizado, Negociación, Ganado, Perdido
+  - Colors: gray, amber, blue, green, red
+- **Page**: `resources/js/pages/admin/deals/index.tsx` — toggle between Kanban and Table views
+- **Components**:
+  - `kanban-board.tsx` — drag & drop columns via `@hello-pangea/dnd`
+  - `deal-card.tsx` — card with title, value, contact avatar, probability
+  - `deal-form-dialog.tsx` — create/edit dialog
+  - `deal-detail-sheet.tsx` — read-only detail sheet
+  - `manage-stages-dialog.tsx` — add/edit/delete/reorder stages
+- **Views**: Kanban (default, 5 columns with droppable zones) and Table (Yajra DataTable, sortable/searchable/paginated)
+- **Shared prop**: pipeline + stages loaded via `AdminDealController::index()`
+- **Sidebar**: "Deals" (TrendingUp icon) in Platform section below Dashboard
+
+### 13. AI Agent (Ollama chat asistente)
+
+**Stack**: Laravel AI SDK v0.7, Ollama (local LLM provider)
+- **Route**: `POST /admin/ai-agent/chat` → `AdminAiAgentController::chat`
+- **Agent class**: `app/Ai/Agents/CrmAgent` — implements `Agent`, uses `Promptable`
+- **System prompt**: configurable via `AI_AGENT_INSTRUCTIONS` en `.env` (leído en `config/ai.php` y expuesto en `CrmAgent::instructions()`)
+- **Provider/model**: `AI_AGENT_PROVIDER` (default `ollama`) y `AI_AGENT_MODEL` (default `llama3.1:8b`) en `.env`
+- **No persistencia**: mensajes no se guardan en DB (stateless, cada llamada es independiente)
+- **Frontend**:
+  - `resources/js/components/ai-agent/ai-agent-floating-button.tsx` — botón flotante neutro (gris, `BotMessageSquare`)
+  - `resources/js/components/ai-agent/ai-agent-chat-panel.tsx` — Sheet con chat, file upload (Medios), audio recording
+  - Inyectado en `resources/js/layouts/app-layout.tsx` — aparece en todas las páginas admin
+- **File/audio send**: sube a Medios (`POST /admin/media/upload`), no se envía el archivo al LLM
+- **Sidebar**: no tiene entrada en sidebar (es flotante)
 
 ## Testing
 

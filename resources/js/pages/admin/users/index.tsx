@@ -1,8 +1,18 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
+import { Calendar, Mail, ShieldCheck, Verified } from 'lucide-react';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetDescription,
+} from '@/components/ui/sheet';
 import {
     Table,
     TableBody,
@@ -25,7 +35,7 @@ type SortConfig = {
     direction: SortDirection;
 };
 
-const ORDERABLE_COLUMNS = ['id', 'name', 'email', 'is_admin', 'email_verified_at', 'created_at'] as const;
+const ORDERABLE_COLUMNS = ['id', 'name', 'email', 'roles', 'email_verified_at', 'created_at'] as const;
 
 type PaginatedResponse = {
     data: (User & Record<string, unknown>)[];
@@ -88,6 +98,7 @@ export default function UsersIndex() {
     const [filtered, setFiltered] = useState(0);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pageLength, setPageLength] = useState(10);
+    const [viewUser, setViewUser] = useState<(User & { roles?: string }) | null>(null);
 
     useEffect(() => {
         const qs = buildDtParams(page, pageLength, sort, search);
@@ -139,7 +150,7 @@ export default function UsersIndex() {
         id: 'ID',
         name: 'Name',
         email: 'Email',
-        is_admin: 'Admin',
+        roles: 'Roles',
         email_verified_at: 'Verified',
         created_at: 'Created',
     };
@@ -233,14 +244,8 @@ export default function UsersIndex() {
                                         </TableCell>
                                         <TableCell>{user.email}</TableCell>
                                         <TableCell>
-                                            {user.is_admin ? (
-                                                <span className="text-green-600">
-                                                    Yes
-                                                </span>
-                                            ) : (
-                                                <span className="text-muted-foreground">
-                                                    No
-                                                </span>
+                                            {user.roles ? String(user.roles) : (
+                                                <span className="text-muted-foreground">—</span>
                                             )}
                                         </TableCell>
                                         <TableCell>
@@ -259,6 +264,13 @@ export default function UsersIndex() {
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setViewUser(user)}
+                                                >
+                                                    View
+                                                </Button>
                                                 <Link
                                                     href={`/admin/users/${user.id}/edit`}
                                                 >
@@ -358,6 +370,83 @@ export default function UsersIndex() {
                     </div>
                 </div>
             </div>
+
+            <Sheet open={viewUser !== null} onOpenChange={(o) => { if (!o) setViewUser(null); }}>
+                <SheetContent className="w-full sm:max-w-md">
+                    <SheetHeader>
+                        <SheetTitle>User Details</SheetTitle>
+                        <SheetDescription>
+                            View user information and account details.
+                        </SheetDescription>
+                    </SheetHeader>
+
+                    {viewUser && (
+                        <div className="mt-6 space-y-6">
+                            <div className="flex items-center gap-4">
+                                <Avatar className="size-16">
+                                    <AvatarImage src={viewUser.avatar} alt={viewUser.name} />
+                                    <AvatarFallback className="text-lg">
+                                        {viewUser.name?.charAt(0).toUpperCase()}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                    <p className="text-lg font-semibold">{viewUser.name}</p>
+                                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                        <Mail className="size-3.5" />
+                                        {viewUser.email}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-muted-foreground">
+                                    Roles
+                                </label>
+                                <div className="flex flex-wrap gap-1">
+                                    {viewUser.roles ? (
+                                        viewUser.roles.split(', ').filter(Boolean).map((role) => (
+                                            <Badge key={role} variant="secondary">
+                                                <ShieldCheck className="mr-1 size-3" />
+                                                {role}
+                                            </Badge>
+                                        ))
+                                    ) : (
+                                        <span className="text-sm text-muted-foreground">—</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-muted-foreground">
+                                    Email Verified
+                                </label>
+                                <div className="flex items-center gap-1 text-sm">
+                                    {viewUser.email_verified_at ? (
+                                        <>
+                                            <Verified className="size-4 text-green-600" />
+                                            <span>{new Date(viewUser.email_verified_at).toLocaleString()}</span>
+                                        </>
+                                    ) : (
+                                        <span className="text-muted-foreground">Not verified</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-muted-foreground">
+                                    Created
+                                </label>
+                                <p className="flex items-center gap-1 text-sm">
+                                    <Calendar className="size-3.5 text-muted-foreground" />
+                                    {viewUser.created_at
+                                        ? new Date(viewUser.created_at).toLocaleString()
+                                        : '—'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </SheetContent>
+            </Sheet>
         </>
     );
 }

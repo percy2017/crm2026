@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BookUser, Images, LayoutGrid, MessageSquare, Settings, ShoppingCart } from 'lucide-react';
+import { BookUser, Globe, Images, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -28,6 +28,11 @@ export function AppSidebar() {
             href: dashboard(),
             icon: LayoutGrid,
         },
+        {
+            title: 'Deals',
+            href: '/admin/deals',
+            icon: TrendingUp,
+        },
     ];
 
     const messagingItems: NavItem[] = [
@@ -35,10 +40,13 @@ export function AppSidebar() {
             title: 'Entradas',
             href: '#',
             icon: MessageSquare,
-            children: (evolutionInstances ?? []).map((inst) => ({
-                title: inst.name,
-                href: `/admin/entradas/${inst.name}`,
-            })),
+            children: [
+                ...(evolutionInstances ?? []).map((inst) => ({
+                    title: inst.name,
+                    href: `/admin/entradas/${inst.name}`,
+                })),
+                { title: 'Web Chat', href: '/admin/web-chat', icon: Globe },
+            ],
         },
         {
             title: 'Contacts',
@@ -76,8 +84,10 @@ export function AppSidebar() {
             icon: Settings,
             children: [
                 { title: 'Users', href: adminUsersIndex() },
+                { title: 'Roles', href: '/admin/roles', icon: ShieldCheck },
                 { title: 'Reverb Monitor', href: '/reverb-monitor' },
                 { title: 'Evolution API', href: '/admin/evolution-instances' },
+                { title: 'Web Widgets', href: '/admin/web-widgets' },
             ],
         },
     ];

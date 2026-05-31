@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin/contacts/import-batch',
             'admin/contacts/scan-groups',
             'admin/contacts/import-group-members',
+            'api/widget/*',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

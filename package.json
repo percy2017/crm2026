@@ -30,9 +30,11 @@
         "typescript-eslint": "^8.23.0"
     },
     "dependencies": {
+        "@fullcalendar/core": "^6.1.20",
         "@fullcalendar/daygrid": "^6.1.20",
         "@fullcalendar/react": "^6.1.20",
         "@headlessui/react": "^2.2.0",
+        "@hello-pangea/dnd": "^18.0.1",
         "@inertiajs/react": "^3.0.0",
         "@inertiajs/vite": "^3.0.0",
         "@laravel/passkeys": "^0.2.0",
@@ -64,6 +66,8 @@
         "pusher-js": "^8.5.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
+        "react-markdown": "^10.1.0",
+        "remark-gfm": "^4.0.1",
         "sonner": "^2.0.0",
         "tailwind-merge": "^3.0.1",
         "tailwindcss": "^4.0.0",

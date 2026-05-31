@@ -16,7 +16,7 @@ class UsersDataTable extends DataTable
             ->addColumn('action', function (User $user) {
                 return view('admin.users.actions', compact('user'))->render();
             })
-            ->editColumn('is_admin', fn (User $user) => $user->is_admin ? 'Yes' : 'No')
+            ->addColumn('roles', fn (User $user) => $user->getRoleNames()->implode(', ') ?: '—')
             ->editColumn('created_at', fn (User $user) => $user->created_at?->format('Y-m-d H:i'))
             ->editColumn('email_verified_at', fn (User $user) => $user->email_verified_at?->format('Y-m-d H:i') ?? '—')
             ->rawColumns(['action']);
@@ -24,7 +24,7 @@ class UsersDataTable extends DataTable
 
     public function query(User $model): Builder
     {
-        return $model->newQuery();
+        return $model->newQuery()->with('roles');
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -35,7 +35,7 @@ class UsersDataTable extends DataTable
                 ['data' => 'id', 'title' => 'ID'],
                 ['data' => 'name', 'title' => 'Name'],
                 ['data' => 'email', 'title' => 'Email'],
-                ['data' => 'is_admin', 'title' => 'Admin'],
+                ['data' => 'roles', 'title' => 'Roles'],
                 ['data' => 'email_verified_at', 'title' => 'Verified'],
                 ['data' => 'created_at', 'title' => 'Created'],
                 ['data' => 'action', 'title' => 'Actions', 'orderable' => false, 'searchable' => false],

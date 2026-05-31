@@ -18,7 +18,8 @@ class UpdateUserRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,'.$this->route('user')],
             'password' => ['nullable', Password::defaults()],
-            'is_admin' => ['boolean'],
+            'roles' => ['nullable', 'array'],
+            'roles.*' => ['string', 'exists:roles,name'],
         ];
     }
 }

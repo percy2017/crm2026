@@ -11,15 +11,30 @@ import { index as adminUsersIndex } from '@/routes/admin/users';
 import { update as adminUsersUpdate } from '@/routes/admin/users';
 import type { User } from '@/types';
 
-export default function UsersEdit({ user }: { user: User }) {
+type Props = {
+    user: User;
+    roles: string[];
+    userRoles: string[];
+};
+
+export default function UsersEdit({ user, roles, userRoles }: Props) {
     const [values, setValues] = useState({
         name: user.name,
         email: user.email,
         password: '',
-        is_admin: user.is_admin,
+        roles: userRoles,
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [processing, setProcessing] = useState(false);
+
+    const toggleRole = (role: string) => {
+        setValues((prev) => ({
+            ...prev,
+            roles: prev.roles.includes(role)
+                ? prev.roles.filter((r) => r !== role)
+                : [...prev.roles, role],
+        }));
+    };
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
@@ -97,18 +112,23 @@ export default function UsersEdit({ user }: { user: User }) {
                         <InputError message={errors.password} />
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <Checkbox
-                            id="is_admin"
-                            checked={values.is_admin}
-                            onCheckedChange={(checked) =>
-                                setValues({
-                                    ...values,
-                                    is_admin: checked === true,
-                                })
-                            }
-                        />
-                        <Label htmlFor="is_admin">Administrator</Label>
+                    <div className="grid gap-2">
+                        <Label>Roles</Label>
+                        <div className="flex flex-wrap gap-4">
+                            {roles.map((role) => (
+                                <div key={role} className="flex items-center gap-2">
+                                    <Checkbox
+                                        id={`role-${role}`}
+                                        checked={values.roles.includes(role)}
+                                        onCheckedChange={() => toggleRole(role)}
+                                    />
+                                    <Label htmlFor={`role-${role}`} className="capitalize">
+                                        {role}
+                                    </Label>
+                                </div>
+                            ))}
+                        </div>
+                        <InputError message={errors.roles} />
                     </div>
 
                     <div className="flex items-center gap-4">

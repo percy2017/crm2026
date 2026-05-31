@@ -13,12 +13,28 @@ return [
     |
     */
 
-    'default' => 'openai',
+    'default' => env('AI_AGENT_PROVIDER', 'ollama'),
     'default_for_images' => 'gemini',
     'default_for_audio' => 'openai',
     'default_for_transcription' => 'openai',
     'default_for_embeddings' => 'openai',
     'default_for_reranking' => 'cohere',
+
+    /*
+    |--------------------------------------------------------------------------
+    | AI Agent Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Centralized configuration for the CRM AI Agent. Change provider or model
+    | here (or via .env) to switch between LLM backends without touching code.
+    |
+    */
+
+    'agent' => [
+        'provider' => env('AI_AGENT_PROVIDER', 'ollama'),
+        'model' => env('AI_AGENT_MODEL', 'llama3.1:8b'),
+        'instructions' => env('AI_AGENT_INSTRUCTIONS', 'Eres un asistente inteligente del CRM. Ayudas a los usuarios con consultas sobre el sistema. Responde en español, claro y conciso. Si no sabes algo, dilo amablemente.'),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -116,6 +132,11 @@ return [
             'driver' => 'ollama',
             'key' => env('OLLAMA_API_KEY', ''),
             'url' => env('OLLAMA_URL', 'http://localhost:11434'),
+            'models' => [
+                'text' => [
+                    'default' => env('AI_AGENT_MODEL', 'llama3.1:8b'),
+                ],
+            ],
         ],
 
         'openai' => [
