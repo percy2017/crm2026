@@ -18,6 +18,6 @@ class WebMessage extends Model
 
     public function conversation(): BelongsTo
     {
-        return $this->belongsTo(WebConversation::class);
+        return $this->belongsTo(WebConversation::class, 'conversation_id');
     }
 }

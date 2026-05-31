@@ -15,9 +15,18 @@ class WidgetController extends Controller
 {
     public function config(Request $request): JsonResponse
     {
-        $widget = WebWidget::where('domain', $request->header('Origin'))
-            ->orWhere('domain', parse_url($request->header('Referer', ''), PHP_URL_HOST))
-            ->where('is_active', true)
+        $host = parse_url($request->header('Origin', '') ?: $request->header('Referer', ''), PHP_URL_HOST);
+
+        if (!$host) {
+            return response()->json(['error' => 'Widget not configured for this domain'], 404);
+        }
+
+        $widget = WebWidget::where('is_active', true)
+            ->where(function ($query) use ($host) {
+                $query->where('domain', $host)
+                    ->orWhere('domain', 'http://' . $host)
+                    ->orWhere('domain', 'https://' . $host);
+            })
             ->first();
 
         if (!$widget) {

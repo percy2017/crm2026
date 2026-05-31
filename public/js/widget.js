@@ -199,7 +199,7 @@
     return uuid;
   }
 
-  function api(path, opts) {
+  function api(path, opts = {}) {
     return fetch(server + '/api/widget' + path, {
       method: opts.method || 'GET',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

@@ -14,9 +14,18 @@ use Tests\TestCase;
 |
 */
 
+use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
+
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(fn () => $this->seed(RolePermissionSeeder::class))
     ->in('Feature');
+
+pest()->extend(TestCase::class)
+    ->use(DatabaseMigrations::class)
+    ->beforeEach(fn () => $this->seed(RolePermissionSeeder::class))
+    ->in('Browser');
 
 /*
 |--------------------------------------------------------------------------

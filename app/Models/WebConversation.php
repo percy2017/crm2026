@@ -12,12 +12,12 @@ class WebConversation extends Model
 
     public function visitor(): BelongsTo
     {
-        return $this->belongsTo(WebVisitor::class);
+        return $this->belongsTo(WebVisitor::class, 'visitor_id');
     }
 
     public function widget(): BelongsTo
     {
-        return $this->belongsTo(WebWidget::class);
+        return $this->belongsTo(WebWidget::class, 'widget_id');
     }
 
     public function assignedUser(): BelongsTo
@@ -27,6 +27,6 @@ class WebConversation extends Model
 
     public function messages(): HasMany
     {
-        return $this->hasMany(WebMessage::class);
+        return $this->hasMany(WebMessage::class, 'conversation_id');
     }
 }

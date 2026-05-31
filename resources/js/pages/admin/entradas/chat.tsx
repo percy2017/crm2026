@@ -459,7 +459,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
         <>
             <Head title={`Entradas - ${instName}`} />
 
-            <div className="flex h-dvh flex-1 overflow-hidden">
+            <div className="flex h-[calc(100dvh-4rem)] overflow-hidden md:h-[calc(100dvh-5rem)]">
                 <div className="flex w-80 shrink-0 flex-col border-r">
                     <div className="flex items-center gap-2 border-b p-3">
                         <Button

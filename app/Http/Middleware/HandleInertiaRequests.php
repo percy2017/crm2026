@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\WebWidget;
 use App\Services\EvolutionApiService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -55,6 +56,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'evolutionInstances' => $instances,
+            'webWidgets' => WebWidget::where('is_active', true)->get(['id', 'name']),
         ];
     }
 }

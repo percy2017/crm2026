@@ -23,6 +23,7 @@
 | CI check | `composer ci:check` (lint + format + types + test) |
 | Reverb | `pm2 start ecosystem.config.cjs` / `pm2 restart reverb` |
 | Migrate | `php artisan migrate` |
+| Seed test data | `php artisan db:seed --class=EntradasTestSeeder` / `php artisan db:seed --class=WebWidgetSeeder` |
 
 ## Architecture
 
@@ -44,6 +45,7 @@
 - Reverb runs on port **2002** (configurable via `REVERB_SERVER_PORT`). nginx proxies `/app` to the Reverb server.
 - Echo + Pusher JS for frontend WebSocket client. Pusher client needs `cluster` option even with Reverb.
 - Reverb requires `pcntl` extension. Ensure `pcntl_*` functions are NOT in `disable_functions` in your PHP CLI php.ini.
+- **nginx for `pos.local`**: proxies `/api/*` to `php artisan serve` (port 8000), everything else to Vite (port 5003). If API routes return 404, check nginx config has the `/api` location block.
 
 ## Module Relationships (diagram)
 
@@ -84,6 +86,25 @@ Deals (Pipeline CRM)
     ├── Kanban Board (drag & drop, configurable stages)
     ├── Table View (Yajra DataTable)
     └── Manage Stages Dialog (add/edit/delete/reorder)
+
+Web Widgets (Live Chat Widget)
+    │
+    ├── Public JS widget (embedded in external sites)
+    │   └── GET /api/widget/config → domain lookup → widget settings
+    │   └── POST /api/widget/visitor → register/update visitor
+    │   └── POST /api/widget/conversations → create conversation + first message
+    │   └── POST /api/widget/messages → send message
+    │   └── GET /api/widget/conversations → poll for new messages
+    │
+    ├── WidgetCors middleware ──→ handles CORS for cross-origin embed
+    │
+    └── Admin Web Chat
+        ├── GET /admin/web-chat → Inertia page
+        ├── GET /admin/web-chat/conversations → list all conversations
+        ├── GET /admin/web-chat/conversations/{id}/messages → fetch messages
+        ├── POST /admin/web-chat/conversations/{id}/send → agent reply
+        ├── POST /admin/web-chat/conversations/{id}/assign → assign to user
+        └── POST /admin/web-chat/conversations/{id}/close → close conversation
 ```
 
 ## Modules
@@ -288,12 +309,92 @@ Deals (Pipeline CRM)
 - **File/audio send**: sube a Medios (`POST /admin/media/upload`), no se envía el archivo al LLM
 - **Sidebar**: no tiene entrada en sidebar (es flotante)
 
+### 14. Web Widgets (Live Chat Widget)
+
+**Public-facing embeddable chat widget** for external websites. Domain-based matching — each widget is tied to a domain.
+
+- **Public JS**: `public/js/widget.js` — self-contained, injects UI into any page
+- **Embed**: `<script src="http://pos.local/js/widget.js"></script>` (loads from Laravel server)
+- **API prefix**: `routes/api.php` under `/api/widget/*` with `WidgetCors` middleware
+- **Controller**: `app/Http/Controllers/Web/WidgetController.php`
+- **Admin CRUD**: `app/Http/Controllers/Admin/AdminWebWidgetController.php` → `/admin/web-widgets`
+- **Admin page**: `resources/js/pages/admin/web-widgets/index.tsx`
+- **Sidebar**: "Web Widgets" entry in sidebar (dynamic: only shows when widgets exist in DB)
+
+**Models**:
+- `WebWidget` — `name`, `domain`, `color`, `position`, `greeting`, `is_active`
+- `WebVisitor` — `uuid`, `name`, `email`, `phone`, `ip`, `user_agent`, `current_page`, `first_seen_at`, `last_seen_at`
+- `WebConversation` — `visitor_id`, `widget_id`, `assigned_to`, `status` (pending/active/closed), `unread_count`
+- `WebMessage` — `conversation_id`, `content`, `is_from_visitor`
+
+**Relationships** (critical: foreign keys must be explicit):
+```php
+// WebConversation
+visitor()       → belongsTo(WebVisitor::class, 'visitor_id')
+widget()        → belongsTo(WebWidget::class, 'widget_id')
+assignedUser()  → belongsTo(User::class, 'assigned_to')
+messages()      → hasMany(WebMessage::class, 'conversation_id')
+
+// WebMessage
+conversation()  → belongsTo(WebConversation::class, 'conversation_id')
+```
+
+**API flow**:
+1. `GET /api/widget/config` — looks up widget by `Origin`/`Referer` host (strips scheme). Returns `widget_id`, `color`, `position`, `greeting`
+2. `POST /api/widget/visitor` — registers/updates visitor by `uuid`. Returns `visitor.id`
+3. `GET /api/widget/conversations?visitor_id=` — returns existing active conversation with messages
+4. `POST /api/widget/conversations` — creates conversation + first message (visitor side). Increments `unread_count`
+5. `POST /api/widget/messages` — sends message to existing conversation. If closed, reopens as `pending`
+
+**Domain matching** (`WidgetController::config`):
+- Extracts host from `Origin` header (or falls back to `Referer`) using `parse_url()`
+- Matches against stored domain with or without scheme: `pos.local`, `http://pos.local`, `https://pos.local`
+- Only returns active widgets (`is_active = true`)
+
+**WidgetCors middleware** (`app/Http/Middleware/WidgetCors.php`):
+- Applied to all `/api/widget/*` routes
+- Sets `Access-Control-Allow-Origin: *`
+- Handles OPTIONS preflight requests
+
+**widget.js** (`public/js/widget.js`):
+- Self-contained vanilla JS, no dependencies
+- Creates DOM elements: floating button, chat panel, messages area, input
+- Polls `/api/widget/conversations` every 3s for new messages
+- Stores visitor UUID in `localStorage` (`crm_widget_uuid`)
+- `api()` function uses default parameter `opts = {}` — GET requests don't need opts
+
+### 15. Admin Web Chat (Agent interface)
+
+**Admin interface** for responding to widget conversations.
+
+- **Route prefix**: `/admin/web-chat` → `AdminWebChatController`
+- **Controller**: `app/Http/Controllers/Admin/AdminWebChatController.php`
+- **Page**: `resources/js/pages/admin/web-chat/index.tsx`
+- **Sidebar**: "Web Chat" in sidebar (dynamic: only shows when widgets exist in DB)
+
+**Endpoints**:
+- `GET /admin/web-chat` → Inertia page
+- `GET /admin/web-chat/conversations` → JSON: all conversations with visitor, widget, assigned user, last message
+- `GET /admin/web-chat/conversations/{id}/messages` → JSON: messages for a conversation
+- `POST /admin/web-chat/conversations/{id}/send` → agent reply (creates message with `is_from_visitor = false`)
+- `POST /admin/web-chat/conversations/{id}/assign` → assign conversation to a user
+- `POST /admin/web-chat/conversations/{id}/close` → close conversation
+
+**Conversations query** (`AdminWebChatController::conversations`):
+- Orders by status: `CASE WHEN 'pending' THEN 1 WHEN 'active' THEN 2 WHEN 'closed' THEN 3 END` (SQLite compatible, NOT MySQL `FIELD()`)
+- Eager loads: `visitor`, `widget`, `assignedUser`
+- Returns: `unread_count`, `last_message`, `last_message_at`
+
+**Shared props** (`HandleInertiaRequests`):
+- `webWidgets` — `WebWidget::where('is_active', true)->get(['id', 'name'])` — used by sidebar to show widget inboxes
+
 ## Testing
 
 - **Pest** framework. Tests in `tests/Feature/` and `tests/Unit/`.
 - Feature tests auto-use `RefreshDatabase` trait.
 - SQLite in-memory database in tests (`phpunit.xml`).
 - No front-end tests exist.
+- **Seeders**: `EntradasTestSeeder` (70 WhatsApp conversations), `WebWidgetSeeder` (1 widget + 3 visitor conversations + messages).
 
 ## CI
 

@@ -20,7 +20,7 @@ class AdminWebChatController extends Controller
     public function conversations(): JsonResponse
     {
         $conversations = WebConversation::with(['visitor', 'widget', 'assignedUser'])
-            ->orderByRaw("FIELD(status, 'pending', 'active', 'closed')")
+            ->orderByRaw("CASE status WHEN 'pending' THEN 1 WHEN 'active' THEN 2 WHEN 'closed' THEN 3 END")
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(fn ($c) => [

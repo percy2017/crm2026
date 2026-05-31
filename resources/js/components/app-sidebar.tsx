@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BookUser, Globe, Images, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp } from 'lucide-react';
+import { BookUser, Images, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -18,8 +18,9 @@ import { index as adminUsersIndex } from '@/routes/admin/users';
 import type { EvolutionInstance, NavItem } from '@/types';
 
 export function AppSidebar() {
-    const { evolutionInstances } = usePage().props as unknown as {
+    const { evolutionInstances, webWidgets } = usePage().props as unknown as {
         evolutionInstances: EvolutionInstance[];
+        webWidgets: { id: number; name: string }[];
     };
 
     const platformItems: NavItem[] = [
@@ -45,7 +46,11 @@ export function AppSidebar() {
                     title: inst.name,
                     href: `/admin/entradas/${inst.name}`,
                 })),
-                { title: 'Web Chat', href: '/admin/web-chat', icon: Globe },
+                ...(webWidgets ?? []).map((w) => ({
+                    title: w.name,
+                    href: '/admin/web-chat',
+                })),
+
             ],
         },
         {
