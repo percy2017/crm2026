@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('inboxes', function (Blueprint $table) {
             $table->id();
             $table->string('name')->unique();
-            $table->string('type'); // evolution, web, facebook...
-            $table->string('status')->default('active'); // active, inactive
+            $table->string('type');
+            $table->string('status')->default('active');
             $table->string('webhook_url')->nullable();
             $table->boolean('webhook_enabled')->default(false);
             $table->json('config')->nullable();

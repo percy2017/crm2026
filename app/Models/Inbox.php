@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Inbox extends Model
 {
@@ -14,7 +13,6 @@ class Inbox extends Model
         'webhook_url',
         'webhook_enabled',
         'config',
-        'web_widget_id',
     ];
 
     protected function casts(): array
@@ -25,8 +23,8 @@ class Inbox extends Model
         ];
     }
 
-    public function webWidget(): BelongsTo
+    public function getConfigValue(string $key, mixed $default = null): mixed
     {
-        return $this->belongsTo(WebWidget::class, 'web_widget_id');
+        return data_get($this->config, $key, $default);
     }
 }

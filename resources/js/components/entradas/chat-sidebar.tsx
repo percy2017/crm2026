@@ -4,6 +4,7 @@ import {
     Globe,
     Image,
     Mail,
+    Pencil,
     Phone,
     Trash2,
     User,
@@ -304,12 +305,20 @@ onClose();
 
                 <div className="sticky bottom-0 border-t bg-card p-4">
                     {contact && (
-                        <Button variant="outline" className="w-full" asChild>
-                            <a href={`/admin/contacts/${contact.id}`} target="_blank" rel="noopener noreferrer">
-                                <User className="mr-2 size-4" />
-                                Ver contacto completo
-                            </a>
-                        </Button>
+                        <div className="flex gap-2">
+                            <Button variant="outline" className="flex-1" asChild>
+                                <a href={`/admin/contacts/${contact.id}`} target="_blank" rel="noopener noreferrer">
+                                    <User className="mr-2 size-4" />
+                                    Ver contacto
+                                </a>
+                            </Button>
+                            <Button variant="outline" className="flex-1" asChild>
+                                <a href={`/admin/contacts/${contact.id}/edit`} target="_blank" rel="noopener noreferrer">
+                                    <Pencil className="mr-2 size-4" />
+                                    Editar
+                                </a>
+                            </Button>
+                        </div>
                     )}
                     <div className="mt-2 flex gap-2">
                         <Button variant="ghost" size="sm" className="flex-1" onClick={async () => {

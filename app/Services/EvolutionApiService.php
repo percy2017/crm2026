@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Inbox;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -21,6 +22,22 @@ class EvolutionApiService
         if (empty($this->serverUrl) || empty($this->apiKey)) {
             throw new RuntimeException('Evolution API credentials not configured.');
         }
+    }
+
+    public function forInbox(Inbox $inbox): static
+    {
+        $url = $inbox->getConfigValue('serverUrl');
+        $key = $inbox->getConfigValue('apikey');
+
+        if ($url && $key) {
+            $service = clone $this;
+            $service->serverUrl = rtrim($url, '/');
+            $service->apiKey = $key;
+
+            return $service;
+        }
+
+        return $this;
     }
 
     public function fetchInstances(): array
@@ -238,10 +255,10 @@ class EvolutionApiService
     {
         $response = $this->client()->post("/webhook/set/{$instance}", [
             'webhook' => [
-                'url' => $url,
                 'enabled' => $enabled,
-                'events' => $events,
+                'url' => $url,
                 'webhookBase64' => true,
+                'events' => $events,
             ],
         ]);
 

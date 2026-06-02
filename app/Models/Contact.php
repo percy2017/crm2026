@@ -12,6 +12,7 @@ class Contact extends Model
         'name',
         'phone',
         'whatsapp_id',
+        'uuid',
         'email',
         'notes',
         'profile_pic_url',
@@ -28,6 +29,11 @@ class Contact extends Model
         'is_community',
         'owner',
         'last_synced_at',
+        'ip',
+        'user_agent',
+        'current_page',
+        'first_seen_at',
+        'last_seen_at',
     ];
 
     protected function casts(): array
@@ -39,6 +45,8 @@ class Contact extends Model
             'group_jids' => 'array',
             'website' => 'array',
             'last_synced_at' => 'datetime',
+            'first_seen_at' => 'datetime',
+            'last_seen_at' => 'datetime',
         ];
     }
 

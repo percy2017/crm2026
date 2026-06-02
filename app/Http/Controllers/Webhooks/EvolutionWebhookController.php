@@ -27,6 +27,10 @@ class EvolutionWebhookController extends Controller
             return response()->json(['status' => 'ignored', 'reason' => 'no inbox']);
         }
 
+        if (($payload['instance'] ?? null) && $payload['instance'] !== $instance) {
+            return response()->json(['status' => 'ignored', 'reason' => 'payload instance mismatch']);
+        }
+
         EvolutionWebhook::create([
             'instance' => $instance,
             'event' => $payload['event'] ?? null,
@@ -60,8 +64,18 @@ class EvolutionWebhookController extends Controller
             return;
         }
 
-        if ($fromMe) {
-            return;
+        if ($messageId) {
+            $existing = Message::where('message_id', $messageId)
+                ->whereIn('channel_id', function ($q) use ($instance) {
+                    $q->select('channel_id')
+                        ->from('conversations')
+                        ->where('instance', $instance);
+                })
+                ->exists();
+
+            if ($existing) {
+                return;
+            }
         }
 
         if (empty($messageData)) {
@@ -161,14 +175,6 @@ class EvolutionWebhookController extends Controller
             $conversation->update(['inbox_id' => $inbox->id]);
         }
 
-        if ($messageId) {
-            $existing = Message::where('message_id', $messageId)->exists();
-
-            if ($existing) {
-                return;
-            }
-        }
-
         $senderPhone = null;
 
         if ($isGroup && $participantJid) {
@@ -178,6 +184,7 @@ class EvolutionWebhookController extends Controller
         try {
             $message = Message::create([
                 'channel_id' => $remoteJid,
+                'instance' => $instance,
                 'message_id' => $messageId,
                 'input_output' => ! $fromMe,
                 'message_type' => $messageType,

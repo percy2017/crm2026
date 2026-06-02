@@ -62,7 +62,7 @@ export function AppSidebar() {
                 })),
                 ...webInboxes.map((w) => ({
                     title: w.name,
-                    href: `/admin/web-chat?inbox_id=${w.id}`,
+                    href: `/admin/entradas/${w.name}`,
                     icon: Globe,
                 })),
             ],

@@ -42,6 +42,7 @@ class AdminEntradaController extends Controller
                         : null,
                 ],
                 'last_message' => Message::where('channel_id', $conv->channel_id)
+                    ->where('instance', $instance)
                     ->latest('created_at')
                     ->first(['text', 'created_at']),
             ]);
@@ -62,6 +63,7 @@ class AdminEntradaController extends Controller
             ->update(['unread_count' => 0]);
 
         $messages = Message::where('channel_id', $request->input('channel_id'))
+            ->where('instance', $instance)
             ->orderBy('created_at', 'desc')
             ->limit(50)
             ->get()
@@ -127,6 +129,7 @@ class AdminEntradaController extends Controller
 
                 $message = Message::create([
                     'channel_id' => $channelId,
+                    'instance' => $instance,
                     'input_output' => false,
                     'message_type' => $messageType,
                     'text' => $request->input('text'),
@@ -146,6 +149,7 @@ class AdminEntradaController extends Controller
 
                 $message = Message::create([
                     'channel_id' => $channelId,
+                    'instance' => $instance,
                     'input_output' => false,
                     'message_type' => 'extendedTextMessage',
                     'text' => $request->input('text'),

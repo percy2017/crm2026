@@ -8,8 +8,6 @@ use App\Http\Controllers\Admin\AdminMediaController;
 use App\Http\Controllers\Admin\AdminPipelineStageController;
 use App\Http\Controllers\Admin\AdminRoleController;
 use App\Http\Controllers\Admin\AdminUserController;
-use App\Http\Controllers\Admin\AdminWebChatController;
-use App\Http\Controllers\Admin\AdminWebWidgetController;
 use App\Http\Controllers\Admin\AdminWooCommerceController;
 use App\Http\Controllers\Admin\InboxCrudController;
 use App\Http\Controllers\Settings\ProfileController;
@@ -113,19 +111,6 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::delete('/woocommerce/orders/{id}', [AdminWooCommerceController::class, 'orderDestroy'])->name('woocommerce.orders.destroy');
 
     Route::post('/ai-agent/chat', [AdminAiAgentController::class, 'chat'])->name('ai-agent.chat');
-
-    Route::get('/web-widgets', [AdminWebWidgetController::class, 'index'])->name('web-widgets.index');
-    Route::post('/web-widgets', [AdminWebWidgetController::class, 'store'])->name('web-widgets.store');
-    Route::get('/web-widgets/{webWidget}', [AdminWebWidgetController::class, 'show'])->name('web-widgets.show');
-    Route::put('/web-widgets/{webWidget}', [AdminWebWidgetController::class, 'update'])->name('web-widgets.update');
-    Route::delete('/web-widgets/{webWidget}', [AdminWebWidgetController::class, 'destroy'])->name('web-widgets.destroy');
-
-    Route::get('/web-chat', [AdminWebChatController::class, 'index'])->name('web-chat.index');
-    Route::get('/web-chat/conversations', [AdminWebChatController::class, 'conversations'])->name('web-chat.conversations');
-    Route::get('/web-chat/conversations/{webConversation}/messages', [AdminWebChatController::class, 'messages'])->name('web-chat.messages');
-    Route::post('/web-chat/conversations/{webConversation}/send', [AdminWebChatController::class, 'send'])->name('web-chat.send');
-    Route::post('/web-chat/conversations/{webConversation}/assign', [AdminWebChatController::class, 'assign'])->name('web-chat.assign');
-    Route::delete('/web-chat/conversations/{webConversation}', [AdminWebChatController::class, 'destroy'])->name('web-chat.destroy');
 
     Route::get('/contacts', [AdminContactController::class, 'index'])->name('contacts.index');
     Route::get('/contacts/create', [AdminContactController::class, 'create'])->name('contacts.create');

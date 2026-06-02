@@ -13,6 +13,7 @@ return new class extends Migration
             $table->string('name')->nullable();
             $table->string('phone', 191)->nullable()->unique();
             $table->string('whatsapp_id')->nullable();
+            $table->string('uuid')->nullable()->unique();
             $table->string('type')->default('individual');
             $table->string('instance')->nullable();
             $table->json('group_jids')->nullable();
@@ -29,6 +30,11 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->json('website')->nullable();
             $table->text('notes')->nullable();
+            $table->string('ip')->nullable();
+            $table->text('user_agent')->nullable();
+            $table->string('current_page')->nullable();
+            $table->timestamp('first_seen_at')->nullable();
+            $table->timestamp('last_seen_at')->nullable();
             $table->timestamps();
         });
     }

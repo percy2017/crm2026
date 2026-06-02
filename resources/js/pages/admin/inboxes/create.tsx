@@ -284,7 +284,7 @@ return;
                                 onChange={(e) => setCustomName(e.target.value)}
                             />
                             <p className="text-xs text-muted-foreground">
-                                A Web Widget will be created automatically with default settings.
+                                Enter the name for the web inbox.
                             </p>
                         </div>
                     )}

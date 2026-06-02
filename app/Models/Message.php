@@ -8,6 +8,7 @@ class Message extends Model
 {
     protected $fillable = [
         'channel_id',
+        'instance',
         'message_id',
         'input_output',
         'message_type',

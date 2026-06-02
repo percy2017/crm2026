@@ -14,7 +14,16 @@ class Conversation extends Model
         'instance',
         'inbox_id',
         'unread_count',
+        'status',
+        'assigned_to',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'unread_count' => 'integer',
+        ];
+    }
 
     public function contact(): BelongsTo
     {
@@ -24,6 +33,11 @@ class Conversation extends Model
     public function inbox(): BelongsTo
     {
         return $this->belongsTo(Inbox::class);
+    }
+
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to');
     }
 
     public function messages(): HasMany

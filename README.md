@@ -7,12 +7,14 @@
 
 | Capa | Tecnología |
 |---|---|
-| Backend | PHP 8.4+, Laravel 13 |
+| Backend | PHP 8.4+, Laravel 13, MySQL |
 | Frontend | React 19, Inertia 3, TypeScript, Tailwind 4 |
-| Base de datos | SQLite (por defecto) / MySQL |
+| Base de datos | MySQL (por defecto) / SQLite |
 | Autenticación | Laravel Fortify (login, registro, 2FA, passkeys) |
 | Roles/Permisos | Spatie laravel-permission v8 |
 | Tiempo real | Laravel Reverb (WebSocket) vía PM2 |
+| Cache | Redis (no tabla `cache` en DB) |
+| Queue | Sync (sin tabla `jobs` en DB) |
 | Build | Vite 8, Rolldown |
 | AI | Laravel AI SDK v0.7 + Ollama (LLM local) |
 
@@ -22,14 +24,13 @@
 - Node.js 22+
 - npm 10+
 - Composer 2+
-- SQLite (extensiones `pdo_sqlite` + `sqlite3`) o MySQL
+- MySQL (o SQLite para dev)
 - Extensión `pcntl` (para Reverb) — NO debe estar en `disable_functions`
-
-> **SQLite recomendado** — no requiere configuración de servidor de base de datos. También soporta MySQL si lo prefieres.
+- Redis (para cache)
 
 ```bash
 # 1. Clonar
-git clone <repo> && cd crm2026
+git clone <repo> && cd crm
 
 # 2. Instalar dependencias
 composer install
@@ -37,92 +38,161 @@ npm install
 
 # 3. Entorno
 cp .env.example .env
+# Editar .env con credenciales MySQL
 
 # 4. Generar APP_KEY
 php artisan key:generate
 
-# 5. Crear base de datos SQLite (recomendado)
-touch database/database.sqlite
-
-# 6. Link de storage
+# 5. Link de storage
 php artisan storage:link
 
-# 7. Migraciones + seeders
-php artisan migrate --force
-php artisan db:seed --force
+# 6. Migraciones + seeders
+APP_ENV=local php artisan migrate:fresh --seed
 
-# 8. Wayfinder (genera rutas JS)
+# 7. Wayfinder (genera rutas JS)
 php artisan wayfinder:generate
 
-# 9. Build frontend
+# 8. Build frontend
 npm run build
 
-# 10. Cache para producción
-php artisan config:cache
+# 9. Cache para producción
+php artisan optimize:clear
 ```
 
 Credenciales por defecto: `admin@admin.com` / `Admin2026$`
 
-### Reverb (WebSocket)
+### Reset DB (desarrollo)
 
-Para funciones en tiempo real, inicia Reverb con PM2:
+```bash
+APP_ENV=local php artisan migrate:fresh --seed
+```
+
+### OPcache
+
+```bash
+curl -sL https://crm.percyalvarez.lat/oc.php
+```
+
+### Reverb (WebSocket)
 
 ```bash
 cp ecosystem.config.example.cjs ecosystem.config.cjs
-# Editar ecosystem.config.cjs si la ruta de php es diferente
 pm2 start ecosystem.config.cjs
 ```
 
-Elige un puerto libre y configúralo en `.env`:
-
-```env
-REVERB_SERVER_PORT=<PUERTO_LIBRE>
-```
-
-Agrega esto a tu nginx (usando el mismo puerto):
+nginx:
 
 ```nginx
 location /app {
-    proxy_pass http://0.0.0.0:<PUERTO_LIBRE>;
+    proxy_pass http://0.0.0.0:2002;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 86400;
 }
 ```
 
+## Arquitectura
+
+### 9 migraciones, 1 por tabla
+
+| Migración | Tablas |
+|---|---|
+| `0001_01_01_000000` | `users`, `password_reset_tokens`, `sessions` |
+| `2024_01_01_000000` | `passkeys` |
+| `2026_05_29_174645` | `evolution_webhooks` |
+| `2026_05_29_175631` | `contacts` (con uuid/ip/user_agent para web visitors) |
+| `2026_05_31_035213` | Spatie permissions/roles |
+| `2026_05_31_042101` | `pipelines`, `pipeline_stages`, `deals` |
+| `2026_06_01_032311` | `inboxes` (config JSON con instanceId/apikey/serverUrl) |
+| `2026_06_01_040000` | `conversations` (con status/assigned_to) |
+| `2026_06_01_050000` | `messages` (con instance/message_id/sender_phone) |
+
+### Tablas unificadas
+
+Solo 4 tablas nucleares para TODOS los mensajes:
+
+```
+inboxes (type=evolution | web)
+    |
+    ├── conversations (inbox_id FK, channel_id + instance unique)
+    |       ├── contact_id → contacts (WhatsApp + web visitors)
+    |       └── messages (instance, channel_id, input_output, text, media_url)
+    |
+    └── config JSON: instanceId, apikey, ownerJid, profileName, etc.
+```
+
+### Tablas eliminadas (7)
+
+| Tabla | Reemplazo |
+|---|---|
+| `web_widgets` | `inboxes.config` (JSON) |
+| `web_visitors` | `contacts` (type=web_visitor, uuid) |
+| `web_conversations` | `conversations` (status, assigned_to) |
+| `web_messages` | `messages` (input_output=is_from_visitor) |
+| `cache` / `cache_locks` | Redis |
+| `jobs` / `job_batches` / `failed_jobs` | No se usan (QUEUE_CONNECTION=sync) |
+
+### Modelos eliminados (4)
+
+| Modelo | Razón |
+|---|---|
+| `WebWidget` | Config en `inboxes.config` |
+| `WebVisitor` | Unificado en `Contact` |
+| `WebConversation` | Unificado en `Conversation` |
+| `WebMessage` | Unificado en `Message` |
+
 ## Módulos
 
-### Evolution API (WhatsApp)
-Integración con Evolution API para gestión de WhatsApp. Incluye webhooks (recepción automática de mensajes), envío de texto/multimedia, y escaneo de contactos desde las instancias.
+### Inboxes (centralizado)
 
-### Contactos
-CRUD completo con DataTables (Yajra), búsqueda server-side. Soporta contactos individuales y grupos WhatsApp. Importación automática desde Evolution API.
+Todas las fuentes de mensajes (WhatsApp Evolution, web widgets) se gestionan desde una sola tabla `inboxes`.
+
+**Create flow**:
+- Evolution: usuario elige instancia de Evolution API → se crea inbox con config completa + webhook
+- Web: usuario ingresa nombre → inbox creado con config por defecto
+
+**Webhook**: cada inbox tiene su propia URL (`/api/webhooks/evolution/{name}`). El controller verifica que `payload.instance` coincida con la URL para evitar contaminación cruzada.
+
+### Evolution API (WhatsApp)
+
+- Webhooks sincrónicos (sin queue)
+- Dedup de mensajes **por inbox** (mismo `message_id` puede existir en distintos inboxes con diferente dirección IN/OUT)
+- Auto-echo prevention: mensajes de grupo no se duplican como IN
+- `webhookBase64: true` + evento `MESSAGES_UPSERT` (sin `webhookByEvents`)
+- Formato de respuesta plano (no nested en `instance`)
+- `forInbox()` para usar credenciales por instancia
+
+### Contactos (unificado)
+
+WhatsApp contacts + web visitors en una sola tabla `contacts`:
+- `type=individual`: contactos WhatsApp
+- `type=group`: grupos WhatsApp
+- `type=web_visitor`: visitantes web (con uuid, ip, user_agent, current_page)
 
 ### Entradas (Chat UI)
-Interfaz de chat WhatsApp con lista de conversaciones, búsqueda, envío de texto/multimedia/audio. Integración con Medios para subida de archivos.
 
-### Medios
-Gestor de archivos plano (sin base de datos). Subida, previsualización y borrado de archivos en `storage/app/public/`. Usado por Entradas y AI Agent.
+Interfaz de chat unificada para WhatsApp y web widgets en `/admin/entradas/{instance}`.
 
-### WooCommerce (POS + Ecommerce)
-Integración con WooCommerce via REST API. Incluye Punto de Venta (POS) con ventas directas y suscripciones, gestión de productos, pedidos, y calendario de suscripciones. Sin tablas locales — todo via API de WooCommerce.
+Endpoints:
+- `GET /{instance}/chats` → conversaciones con last_message
+- `GET /{instance}/messages?channel_id=` → mensajes (50 últimos, filtra por instance)
+- `POST /{instance}/send` → enviar texto/multimedia
+- `DELETE /{instance}/conversations/{id}` → eliminar conversación
 
-### Deals (Pipeline CRM)
-Kanban de ventas con arrastrar y soltar via `@hello-pangea/dnd`. 5 etapas configurables: Nuevo → Cotizado → Negociación → Ganado → Perdido. Vista Kanban y Tabla (DataTables Yajra). Gestión de etapas desde la UI (agregar/editar/eliminar/reordenar).
+### Web Widget (Live Chat)
 
-### Roles & Permisos
-Administración de roles vía Spatie. DataTable server-side con conteo de usuarios. Rol `admin` protegido contra modificación/eliminación.
+Widget embebible en sitios externos:
+- `/js/widget.js` → script auto-contenido
+- API pública en `/api/widget/*`
+- Usa las mismas tablas unificadas (inboxes, contacts, conversations, messages)
 
-### Usuarios
-CRUD de usuarios con DataTable server-side. Los permisos se manejan via roles (Spatie).
+### Otros módulos
 
-### AI Agent
-Asistente AI flotante disponible en todas las páginas.
+- **Medios**: gestor de archivos con filtros por tipo/tamaño
+- **Deals**: pipeline CRM con Kanban drag & drop
+- **WooCommerce**: POS, productos, pedidos via REST API
+- **AI Agent**: asistente flotante con Ollama
+- **Notificaciones**: frontend-only (localStorage), sin tabla en DB
 
 ## Testing
 
@@ -130,7 +200,14 @@ Asistente AI flotante disponible en todas las páginas.
 composer test
 ```
 
-Pest con SQLite en memoria. Tests en `tests/Feature/` y `tests/Unit/`.
+Pest con MySQL en tests. Tests en `tests/Feature/` y `tests/Unit/`.
+
+## Conventions
+
+- PHP: PSR-12 via Laravel Pint
+- JS/TS: eslint + prettier (80 print width, 4 space indent, single quotes)
+- 1TBS braces with padding lines
+- 9 migrations only (1 per table)
 
 ## Licencia
 
