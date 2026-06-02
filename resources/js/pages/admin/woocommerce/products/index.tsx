@@ -1,5 +1,4 @@
 import { Head } from '@inertiajs/react';
-import { useCallback, useEffect, useState } from 'react';
 import {
     Package,
     Tag,
@@ -9,13 +8,13 @@ import {
     DollarSign,
     Trash2,
 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import {
     Sheet,
     SheetContent,
@@ -31,6 +30,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import type { WooPaginatedResponse, WooProduct } from '@/types';
 
 export default function WooProductsIndex() {
@@ -52,7 +52,10 @@ export default function WooProductsIndex() {
     const fetchProducts = useCallback(() => {
         setLoading(true);
         const params = new URLSearchParams({ per_page: String(perPage), page: String(page) });
-        if (search) params.set('search', search);
+
+        if (search) {
+params.set('search', search);
+}
 
         fetch(`/admin/woocommerce/products?${params}`, {
             headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -72,7 +75,10 @@ export default function WooProductsIndex() {
     }, [fetchProducts]);
 
     useEffect(() => {
-        if (selectedId === null) return;
+        if (selectedId === null) {
+return;
+}
+
         setLoadingDetail(true);
         setProductDetail(null);
         fetch(`/admin/woocommerce/products/${selectedId}`, {
@@ -86,18 +92,22 @@ export default function WooProductsIndex() {
 
     const handleDelete = async (id: number) => {
         setDeletingId(id);
+
         try {
             const res = await fetch(`/admin/woocommerce/products/${id}`, {
                 method: 'DELETE',
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
 
-            if (!res.ok) throw new Error('Failed to delete');
+            if (!res.ok) {
+throw new Error('Failed to delete');
+}
 
             if (selectedId === id) {
                 setSelectedId(null);
                 setProductDetail(null);
             }
+
             fetchProducts();
         } catch {
             setDeletingId(null);
@@ -110,7 +120,10 @@ export default function WooProductsIndex() {
             : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
 
     const formatPrice = (p: WooProduct) => {
-        if (p.type === 'variable') return `${p.price} — ${p.regular_price}`;
+        if (p.type === 'variable') {
+return `${p.price} — ${p.regular_price}`;
+}
+
         if (p.sale_price) {
             return (
                 <span>
@@ -120,6 +133,7 @@ export default function WooProductsIndex() {
                 </span>
             );
         }
+
         return p.price;
     };
 
@@ -221,7 +235,11 @@ export default function WooProductsIndex() {
                 <ConfirmDialog {...dialogProps} />
             </div>
 
-            <Sheet open={selectedId !== null} onOpenChange={(o) => { if (!o) { setSelectedId(null); setProductDetail(null); } }}>
+            <Sheet open={selectedId !== null} onOpenChange={(o) => {
+ if (!o) {
+ setSelectedId(null); setProductDetail(null); 
+} 
+}}>
                 <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
                     {loadingDetail && (
                         <div className="flex items-center justify-center h-full">

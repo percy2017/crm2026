@@ -1,9 +1,17 @@
-import { Link } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Globe, Mail, MessageSquare, Phone, Shield, Users, FileText, Edit, Clock, Smartphone, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Globe, Mail, MessageSquare, Phone, Shield, Users, FileText, Edit, Clock, Smartphone } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import {
     Sheet,
     SheetContent,
@@ -17,6 +25,9 @@ import type { Contact } from '@/types';
 type Detail = Contact & {
     groups?: Array<{ id: number; name: string }>;
     members?: Array<{ id: number; name: string; phone: string }>;
+    chats_count?: number;
+    messages_count?: number;
+    last_message_at?: string | null;
 };
 
 type Props = {
@@ -27,10 +38,12 @@ type Props = {
 export function ContactDetailSheet({ contactId, onClose }: Props) {
     const [detail, setDetail] = useState<Detail | null>(null);
     const [loading, setLoading] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
 
     useEffect(() => {
         if (!contactId) {
             setDetail(null);
+
             return;
         }
 
@@ -47,7 +60,11 @@ export function ContactDetailSheet({ contactId, onClose }: Props) {
     }, [contactId]);
 
     return (
-        <Sheet open={contactId !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+        <Sheet open={contactId !== null} onOpenChange={(open) => {
+ if (!open) {
+onClose();
+} 
+}}>
             <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
                 {loading && (
                     <div className="flex h-full items-center justify-center">
@@ -215,6 +232,29 @@ export function ContactDetailSheet({ contactId, onClose }: Props) {
                                 )}
                             </div>
 
+                            {(detail.chats_count !== undefined && detail.chats_count > 0) && (
+                                <div className="border-t pt-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <MessageSquare className="size-4 text-muted-foreground" />
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Chat Stats</p>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                                            <p className="text-lg font-bold">{detail.chats_count}</p>
+                                            <p className="text-[10px] text-muted-foreground">Conversations</p>
+                                        </div>
+                                        <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                                            <p className="text-lg font-bold">{detail.messages_count}</p>
+                                            <p className="text-[10px] text-muted-foreground">Messages</p>
+                                        </div>
+                                        <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                                            <p className="text-lg font-bold">{detail.last_message_at ? new Date(detail.last_message_at).toLocaleDateString() : '—'}</p>
+                                            <p className="text-[10px] text-muted-foreground">Last Activity</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {detail.type === 'individual' && detail.groups && detail.groups.length > 0 && (
                                 <div className="border-t pt-4">
                                     <div className="flex items-center gap-2 mb-3">
@@ -271,16 +311,45 @@ export function ContactDetailSheet({ contactId, onClose }: Props) {
                                 </div>
                             )}
 
-                            <div className="border-t pt-4">
-                                <Link href={`/admin/contacts/${detail.id}/edit`}>
+                            <div className="border-t pt-4 flex gap-2">
+                                <Link href={`/admin/contacts/${detail.id}/edit`} className="flex-1">
                                     <Button variant="outline" size="sm" className="w-full">
                                         <Edit className="size-3.5 mr-1" /> Edit Contact
                                     </Button>
                                 </Link>
+                                <Button variant="destructive" size="sm" className="flex-1" onClick={() => setDeleteOpen(true)}>
+                                    <Trash2 className="size-3.5 mr-1" /> Delete
+                                </Button>
                             </div>
                         </div>
                     </>
                 )}
+
+                <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Delete Contact</DialogTitle>
+                            <DialogDescription>
+                                Are you sure you want to delete &ldquo;{detail?.name ?? detail?.phone ?? 'this contact'}&rdquo;?
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                            <Button variant="destructive" onClick={() => {
+                                if (detail) {
+                                    router.delete(`/admin/contacts/${detail.id}`, {
+                                        preserveScroll: true,
+                                        onSuccess: () => {
+ setDeleteOpen(false); onClose(); 
+},
+                                    });
+                                }
+                            }}>
+                                Delete
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </SheetContent>
         </Sheet>
     );

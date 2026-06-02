@@ -2,19 +2,21 @@
 
 ## Stack
 
-- **PHP 8.4+**, Laravel 13, SQLite (or MySQL), nginx
+- **PHP 8.4+**, Laravel 13, **MySQL**, nginx
 - **React 19**, Inertia 3, Tailwind 4, TypeScript
 - Auth: Laravel Fortify (login/register/2FA/passkeys)
 - Realtime: Laravel Reverb (WebSocket, port 2002) via PM2
 - Frontend build: Vite 8, Rolldown
 - **AI**: Laravel AI SDK v0.7, Ollama (local LLM provider)
+
 - **Roles/Permissions**: Spatie `laravel-permission` v8 (`roles`, `permissions`, `model_has_roles`, etc.)
+- **Phone input**: `intl-tel-input` (vanilla JS widget) — flags, country detection, validation
 
 ## Key commands
 
 | Action | Command |
 |---|---|
-| Dev servers | `composer dev` (PHP server + queue + logs + Vite concurrently) |
+| Dev servers | `composer dev` (PHP server + logs + Vite concurrently) |
 | Build frontend | `npm run build` |
 | Type check | `npm run types:check` (`tsc --noEmit`) |
 | Lint PHP | `composer lint` (pint) / `composer lint:check` (pint --test) |
@@ -22,8 +24,12 @@
 | Test | `composer test` (pint check + artisan test) or `./vendor/bin/pest` |
 | CI check | `composer ci:check` (lint + format + types + test) |
 | Reverb | `pm2 start ecosystem.config.cjs` / `pm2 restart reverb` |
+| Restart Evolution API | `pm2 restart evolution-api` |
+
 | Migrate | `php artisan migrate` |
 | Seed test data | `php artisan db:seed --class=EntradasTestSeeder` / `php artisan db:seed --class=WebWidgetSeeder` |
+| Regenerate routes | `php artisan wayfinder:generate` |
+| Clear all cache | `php artisan optimize:clear` |
 
 ## Architecture
 
@@ -40,71 +46,109 @@
 
 ## Environment quirks
 
-- `.env` uses **SQLite** by default (`DB_CONNECTION=sqlite`). Also supports MySQL.
-- If your system has multiple PHP versions, use the `php8.4` binary for artisan commands.
+- `.env` uses **MySQL** (`DB_CONNECTION=mysql`) by default. Also supports SQLite for dev.
+- **Cache** uses **Redis** (`CACHE_STORE=redis`).
 - Reverb runs on port **2002** (configurable via `REVERB_SERVER_PORT`). nginx proxies `/app` to the Reverb server.
 - Echo + Pusher JS for frontend WebSocket client. Pusher client needs `cluster` option even with Reverb.
 - Reverb requires `pcntl` extension. Ensure `pcntl_*` functions are NOT in `disable_functions` in your PHP CLI php.ini.
-- **nginx for `pos.local`**: proxies `/api/*` to `php artisan serve` (port 8000), everything else to Vite (port 5003). If API routes return 404, check nginx config has the `/api` location block.
+
+## Inboxes System (centralized inbox management)
+
+All message sources (Evolution WhatsApp instances, web widgets) are managed through a single **Inboxes** system.
+
+### Concept
+
+| Old (removed) | New |
+|---|---|
+| `evolution-instances` page (live API) | **`/admin/inboxes`** (DB-backed) |
+| `web-widgets` page (separate CRUD) | Inboxes can be type `evolution` or `web` |
+| `evolutionInstances` shared prop | `inboxes` shared prop from DB |
+| Webhook `POST /api/webhooks/evolution` | `POST /api/webhooks/evolution/{inbox}` (per-inbox) |
+
+### Model: `Inbox`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigIncrements | PK |
+| `name` | string unique | `tigo1`, `entel1`, `mi-sitio` |
+| `type` | string | `evolution`, `web` |
+| `status` | string | `active`, `inactive` |
+| `webhook_url` | string nullable | auto-generated: `/api/webhooks/evolution/{name}` |
+| `webhook_enabled` | boolean | |
+| `config` | json nullable | ownerJid, profileName, profilePicUrl, etc. |
+| `web_widget_id` | FK nullable → web_widgets | linked WebWidget for type=web |
+
+### Pages
+
+- **`GET /admin/inboxes`** — list of all inboxes with avatar, type, webhook status
+- **`GET /admin/inboxes/create`** — create page:
+  - Select type (`evolution` or `web`)
+  - If `evolution`: shows instances from Evolution API (with avatar, name, status)
+  - If `web`: name input → auto-creates WebWidget
+  - After create: success screen showing webhook URL with copy button
+- **`POST /admin/inboxes`** — store (creates inbox + configures webhook on Evolution API)
+- **`DELETE /admin/inboxes/{inbox}`** — delete
+
+### Webhook Flow
+
+```
+Evolution API → POST /api/webhooks/evolution/{instance}
+  → EvolutionWebhookController::handle()
+    → EvolutionWebhook::create() (raw log)
+    → processMessage() (sync — Contact, Conversation, Message, broadcast)
+    → 200 OK
+
+Processing (synchronous, no queue):
+  → Contact::firstOrCreate() by phone
+  → Conversation::firstOrCreate() by channel_id + instance (composite unique)
+  → Message::create() with message_id dedup (try-catch for duplicates)
+  → unread_count++ on conversation for incoming messages
+  → broadcast MessageCreated to entradas.{instance}
+```
+
+### Sidebar
+
+Inboxes with `type=evolution` appear under "Entradas" with `Zap` icon.
+Inboxes with `type=web` appear under "Entradas" with `Globe` icon.
 
 ## Module Relationships (diagram)
 
 ```
 Evolution API (WhatsApp)
     │
-    ├── Webhooks ──→ EvolutionWebhooks (raw log)
-    │   └── messages.upsert ──→ Contact (upsert by phone)
-    │                           └── Conversation (firstOrCreate by channel_id)
-    │                               └── Message (create with text/media)
+    ├── Inbox (DB) ←── Webhooks ──→ EvolutionWebhooks (raw log)
+    │                               └── EvolutionWebhookController (sync, no queue)
+    │                                   ├── Contact (firstOrCreate by phone)
+    │                                   ├── Conversation (firstOrCreate by channel_id + instance)
+    │                                   ├── Message (create with message_id dedup, try-catch dups)
+    │                                   ├── unread_count++ for incoming messages
+    │                                   └── broadcast MessageCreated to entradas.{instance}
     │
-    └── REST API (fetchInstances, sendText, sendMedia, etc.)
+    └── REST API (fetchInstances, sendText, sendMedia, setWebhook, etc.)
         │
-        ├── Entradas Chat UI
-        │   ├── GET /{instance}/chats    → conversations + contacts + messages (local)
-        │   ├── GET /{instance}/messages → messages (local)
-        │   └── POST /{instance}/send    → Evolution API + Message::create (local)
-        │
-        ├── Medios (file upload)
-        │   └── POST /media/upload → storage/app/public/
-        │       └── Used by Entradas and AI Agent for attach/audio send
-        │
-        └── Contacts Import
-            └── scanInstances → findContacts → importBatch → Contact::create
+        └── Entradas Chat UI
+            ├── GET /{instance}/chats    → conversations + contacts + messages (local)
+            ├── GET /{instance}/messages → messages (local), resets unread_count
+            └── POST /{instance}/send    → Evolution API + Message::create (local)
 
 AI Agent (Ollama)
     │
     ├── CrmAgent ──→ instructions() from config/env
-    ├── Floating Button ──→ AppLayout (all admin pages)
+    ├── Header Button ──→ AppSidebarHeader (all admin pages)
     └── Chat Panel ──→ Sheet with file/audio/text input
         └── POST /admin/ai-agent/chat ──→ Ollama via AI SDK
-            └── Attachments uploaded via Medios
+
+Notifications (Global)
+    ├── chat.tsx socket listener ──→ dispatch window event `notify:message`
+    ├── NotificationsContext ──→ group by instance+channel, persist localStorage
+    ├── NotificationBell ──→ icon in AppSidebarHeader with badge
+    └── NotificationsSheet ──→ custom side panel (no Radix)
 
 Deals (Pipeline CRM)
-    │
     ├── AdminDealController (CRUD + moveStage)
     ├── AdminPipelineStageController (manage stages)
     ├── Kanban Board (drag & drop, configurable stages)
-    ├── Table View (Yajra DataTable)
-    └── Manage Stages Dialog (add/edit/delete/reorder)
-
-Web Widgets (Live Chat Widget)
-    │
-    ├── Public JS widget (embedded in external sites)
-    │   └── GET /api/widget/config → domain lookup → widget settings
-    │   └── POST /api/widget/visitor → register/update visitor
-    │   └── POST /api/widget/conversations → create conversation + first message
-    │   └── POST /api/widget/messages → send message
-    │   └── GET /api/widget/conversations → poll for new messages
-    │
-    ├── WidgetCors middleware ──→ handles CORS for cross-origin embed
-    │
-    └── Admin Web Chat
-        ├── GET /admin/web-chat → Inertia page
-        ├── GET /admin/web-chat/conversations → list all conversations
-        ├── GET /admin/web-chat/conversations/{id}/messages → fetch messages
-        ├── POST /admin/web-chat/conversations/{id}/send → agent reply
-        ├── POST /admin/web-chat/conversations/{id}/assign → assign to user
-        └── POST /admin/web-chat/conversations/{id}/close → close conversation
+    └── Table View + Manage Stages Dialog
 ```
 
 ## Modules
@@ -115,291 +159,170 @@ Web Widgets (Live Chat Widget)
 - **Page**: `/reverb-monitor` → `resources/js/pages/reverb-monitor.tsx`
 - **nginx**: proxies `/app` to `0.0.0.0:2002`
 - **Commands**: `pm2 restart reverb`, `pm2 start ecosystem.config.cjs`
+- **Echo config** (in `chat.tsx` and `use-echo.ts`):
+  - Pusher client needs `channelAuthorization: { endpoint: '/broadcasting/auth', transport: 'ajax' }` for private channels
+  - Echo needs `authEndpoint: '/broadcasting/auth'` (Pusher defaults to `/pusher/auth` which doesn't exist)
 
-### 2. Evolution Instances (Admin read-only dashboard)
-- **Route**: `/admin/evolution-instances` → `AdminEvolutionInstanceController`
-- **Service**: `app/Services/EvolutionApiService.php` — HTTP client wrapping Evolution API
-- **Config**: `config/evolution.php` — reads `EVOLUTION_SERVER_URL` and `EVOLUTION_API_KEY` from `.env`
-- **Page**: `resources/js/pages/admin/evolution-instances/index.tsx` — cards grid with status badge, profile pic, stats + webhook log tab
-- **No DB** — data fetched live from Evolution API
-- **Sidebar**: "Evolution API" inside Configuración submenu
+### 2. Inboxes (Centralized inbox management)
+- **Route**: `/admin/inboxes` → `InboxCrudController.php`
+- **Model**: `Inbox` — `name`, `type` (evolution/web), `status`, `webhook_url`, `webhook_enabled`, `config` (JSON), `web_widget_id` (FK)
+- **Create flow**:
+  - Select type → if `evolution`: pick from Evolution API instances (fetched live, shows avatar/status)
+  - If `web`: enter name → auto-creates WebWidget with defaults
+  - On success: shows webhook URL with copy button
+- **Delete**: removes inbox + optional linked WebWidget
+- **Sidebar**: "Inboxes" under Configuración (replaces old "Evolution API" + "Web Widgets")
+- **Shared prop**: `inboxes` — `Inbox::where('status', 'active')->get(['id', 'name', 'type', 'webhook_enabled', 'config'])`
 
-### 3. Evolution Webhooks (receiver + processor)
-- **Route**: `POST /webhooks/evolution` → `api.php`
+### 3. Evolution Webhooks (receiver + processor sync)
+- **Route**: `POST /api/webhooks/evolution/{instance?}` → `api.php`
 - **Controller**: `app/Http/Controllers/Webhooks/EvolutionWebhookController.php`
+- **Process**: stores raw log → calls `processMessage()` synchronously → returns 200 immediately
+- **Inbox check**: verifies `Inbox::where('name', $instance)->where('status', 'active')` exists — ignores if not
+- **Only processes**: `messages.upsert` events
+- **Skip types**: `albumMessage`, `reactionMessage`, `protocolMessage` (NOT `senderKeyDistributionMessage` — removed because it's a valid group metadata field)
+- **Message create**: wrapped in try-catch for `UniqueConstraintViolationException` — handles duplicates silently
 - **Model**: `EvolutionWebhook` — raw log (`instance`, `event`, `payload` JSON)
+- **No queue** — synchronous processing (QUEUE_CONNECTION=sync)
+- **File**: `app/Jobs/ProcessEvolutionWebhook.php` (not used, sync only)
 - **Behavior**:
-  - Stores ALL incoming webhooks in `evolution_webhooks` table (raw audit trail)
-  - Filters: processes only `messages.upsert` events
-  - Skips: `status@broadcast` (stories), empty message content (delivery receipts)
-  - On valid `messages.upsert`:
-    1. Extracts `remoteJid`, `pushName`, `key.fromMe`, `messageType`, text/media
-    2. **Contact**: `updateOrCreate(['phone' => $phone])` — centralized in `contacts` table
-    3. **Conversation**: `firstOrCreate(['channel_id' => $remoteJid])` — links contact_id + instance
-    4. **Message**: `Message::create()` — saves text, media_url, input_output flag
-    5. **Media**: downloads Evolution API URLs to `storage/app/public/` (same as Medios)
+  - Filters: only `messages.upsert` events
+  - Skips: `status@broadcast` (stories), `@newsletter`
+  - Skips types: `albumMessage`, `reactionMessage`, `protocolMessage`, `senderKeyDistributionMessage`
+  - **Stickers** (`stickerMessage`): processed (not skipped), media download attempted with fallback
+  - **Groups**: `safeGroupName()` fetches name from Evolution API with try/catch fallback — fallback name: `"Group {last8digits}"` (NOT `$pushName` which is the sender)
+  - **Contact**: `firstOrCreate(['phone' => $phone])`
+    - When `fromMe=true` (outgoing): name is NOT saved (avoids showing instance owner's name)
+    - When `fromMe=false` (incoming): name saved from `$pushName`
+  - **Conversation**: `firstOrCreate(['channel_id', 'instance'])` with `inbox_id` FK
+  - **Message**: `create` by `message_id` dedup (try-catch for duplicates) — `message_id` is global unique, checked without channel_id
+  - **Media**: tries `getBase64FromMediaMessage` with try/catch — if fails, message is saved without media
+  - **Broadcast**: `MessageCreated` event on `entradas.{instance}` (incoming AND outgoing)
 
-### 4. Contacts (Admin CRUD + sync center)
-- **Route prefix**: `/admin/contacts` → `AdminContactController`
-- **Model**: `app/Models/Contact` (central contact repository for ALL channels)
-  - Fields: `name`, `phone`, `whatsapp_id`, `email`, `notes`, `profile_pic_url`, `is_active`, `country`, `type` (individual/group), `instance`, `group_jids`, `participant_count`, `is_community`, `owner`, `last_synced_at`, `is_business`, `wa_status`, `description`, `website`
-  - `detectCountry()` uses `giggsey/libphonenumber-for-php`
-  - auto-detecta `country` en `saving` event
-  - Scopes: `individuals()`, `groups()`; Query builders: `groupContacts()`, `members()`
-- **DataTable (Yajra)**: `app/DataTables/ContactsDataTable.php`
-- **Import flow**: `scanInstances` → `findContacts` (Evolution API) → `importBatch` → `Contact::create`
-- **Key rule**: ALL contacts are centralized here — webhooks, import, and manual create all use the same `Contact` model
-- **Sidebar**: "Contacts" (BookUser icon) in `mainNavItems`
+### 4. Conversations + Messages (local DB storage)
+- **Table**: `conversations`
+  - `id`, `channel_id` (string), `contact_id`, `instance`, `inbox_id` (FK → inboxes), `unread_count` (default 0), timestamps
+  - **Unique constraint**: composite `(channel_id, instance)` — same group can exist in different inboxes
+- **Table**: `messages`
+  - `id`, `message_id` (string unique — WhatsApp msg ID, dedup), `channel_id`, `input_output` (true=entrada), `message_type`, `text`, `media_url`, `sender_phone` (string nullable), timestamps
+- **Group detection**: `str_ends_with($jid, '@g.us')` → type=group, otherwise individual
+- **Message bubbles**: unified `bg-muted` in UI
+- **Unread tracking**: `unread_count` incremented in `EvolutionWebhookController::processMessage()` for incoming messages; reset in `AdminEntradaController::messages()` when opening conversation; frontend clears badge locally on click
 
-### 5. Medios (File manager, no DB)
-- **Route prefix**: `/admin/media` → `AdminMediaController`
-- **Storage**: `storage/app/public/` flat root (UUID filenames)
-- **Frontend**: `resources/js/pages/admin/media/index.tsx` — cards grid, infinite scroll, Sheet preview
-- **Used by**: Entradas chat for file/audio attachment upload before sending via Evolution API
-- **Sidebar**: "Medios" (Images icon) in `mainNavItems`
-
-### 6. Conversations + Messages (local chat storage)
-- **No DB tables** — data fetched live from Evolution API (deprecated, but code kept for reference)
-
-#### `conversations` table
-| Column | Type | Notes |
-|---|---|---|
-| `id` | bigIncrements | PK |
-| `channel_id` | string unique | remoteJid (`591xxx@s.whatsapp.net`) |
-| `contact_id` | bigint FK → contacts | link to Contact |
-| `instance` | string nullable | `entel1`, `tigo1`, etc |
-| `timestamps` | | created_at, updated_at |
-
-#### `messages` table
-| Column | Type | Notes |
-|---|---|---|
-| `id` | bigIncrements | PK |
-| `channel_id` | string index | remoteJid |
-| `input_output` | boolean | true=entrada, false=salida |
-| `message_type` | string nullable | `conversation`, `imageMessage`, `audioMessage`, `documentMessage`, `extendedTextMessage` |
-| `text` | text nullable | caption or conversation text |
-| `media_url` | string nullable | filename in `storage/app/public/` (Medios root) |
-| `timestamps` | | created_at, updated_at |
-
-- **Message rendering**: `audioMessage` → `<audio>` player, `imageMessage` → `<img>`, others → download link
-- **No `message_id`, `data` (JSON), `source`, `timestamp` epoch** — intentionally minimal and channel-agnostic
-
-### 7. Entradas (WhatsApp Chat UI)
+### 5. Entradas (WhatsApp Chat UI)
 - **Route prefix**: `/admin/entradas/{instance}` → `AdminEntradaController`
-- **Service**: `EvolutionApiService` (sendText, sendMedia)
-- **Chat page**: `resources/js/pages/admin/entradas/chat.tsx` — split layout:
-  - Left: conversation list (searchable, ordered by last message)
-  - Right: messages + send input with attach/audio/text
+- **Chat page**: `resources/js/pages/admin/entradas/chat.tsx`
+  - Header: avatar from `inbox.config.profilePicUrl`, name, JID, no Info button
+  - Left: conversations (searchable, ordered by last message)
+  - Right: messages + input area
 - **Endpoints**:
-  - `GET /{instance}` → Inertia page
-  - `GET /{instance}/chats` → JSON: conversations with contact info + last message
-  - `GET /{instance}/messages?channel_id=...` → JSON: messages for a channel
-  - `POST /{instance}/send` → accepts `number`, `text`, `channel_id`, `media_url`, `media_type`, `media_mimetype`, `file_name`
-    - If `media_url` present → `sendMedia()` (Evolution API) → saves local Message
-    - If text only → `sendText()` (Evolution API) → saves local Message
-- **File/audio send**:
-  1. User picks file or records audio
-  2. Uploads to Medios (`POST /admin/media/upload`) → gets filename
-  3. Calls `POST /{instance}/send` with `media_url` = filename from Medios
-  4. Backend calls `sendMedia()` with public URL (`asset('storage/'.$filename)`)
-  5. Evolution API downloads from the URL and sends to WhatsApp
-- **Sidebar**: "Entradas" → dynamic submenus per instance (loaded from shared `evolutionInstances` prop)
-- **Shared prop**: `HandleInertiaRequests` shares `evolutionInstances` globally
+  - `GET /{instance}/chats` → JSON conversations with contact + last message
+  - `GET /{instance}/messages?channel_id=...` → JSON messages
+  - `POST /{instance}/send` → sendText/sendMedia via Evolution API + save locally
+  - `DELETE /{instance}/conversations/{conversation}` → delete
+- **Chat UI features**:
+  - **Emoji picker** (`emoji-picker-react`) — popover above input, 😊 button
+  - **Drag & drop** files
+  - **Audio recording** (MediaRecorder)
+  - **Paste image** (Ctrl+V) — captures clipboard images as file attachment
+  - **File upload** with caption textarea
+  - **Compact footer** — buttons grouped (Paperclip, Mic, Smile), textarea, Send
+  - **Conversation header click** → opens ChatSidebar (Sheet with contact details)
+  - **Real-time**: Echo listener on `entradas.{instance}` private channel
+  - **Delete dialog**: confirmation Dialog before deleting conversation
+  - **Scroll-to-bottom button**: floating ChevronDown button (appears when scrolled up) with badge showing new messages received while away
+  - **Unread badge**: per-conversation `unread_count` displayed as primary-colored badge in conversation list
+- **ChatSidebar component** (`resources/js/components/entradas/chat-sidebar.tsx`):
+  - Always shows name + phone in header (even if contact not in DB)
+  - Falls back to channelId, contactName, contactAvatar from props
+  - "Contacto no encontrado" removed — just shows empty body
+  - Copy phone with toast "Teléfono copiado"
+  - Delete button with confirmation
+- **Shared prop**: `inboxes` from `HandleInertiaRequests`
 
-### 8. Evolution API Service
+### 6. Evolution API Service
 - **File**: `app/Services/EvolutionApiService.php`
 - **Methods**:
   - `fetchInstances()` — `GET /instance/fetchInstances`
+  - `fetchWebhookStatus(instance)` — `GET /webhook/find/{instance}`
+  - `setWebhook(instance, url, enabled, events)` — `POST /webhook/set/{instance}` — sets webhook with URL, events, base64
   - `fetchProfile(instance, number)` — `POST /chat/fetchProfile`
   - `fetchProfilePictureUrl()` — `POST /chat/fetchProfilePictureUrl`
-  - `fetchBusinessProfile()` — `POST /chat/fetchBusinessProfile`
-  - `whatsappNumbers()` — `POST /chat/whatsappNumbers`
-  - `findContacts(instance)` — `POST /chat/findContacts`
-  - `fetchChats(instance)` — `GET /chat/findChats` (deprecated for Entradas, now uses local tables)
-  - `fetchMessages(instance, remoteJid, limit)` — `POST /chat/fetchMessages` (deprecated for Entradas)
   - `sendText(instance, number, text)` — `POST /message/sendText`
   - `sendMedia(instance, number, mediaType, mediaUrl, mimetype, caption?, fileName?)` — `POST /message/sendMedia`
   - `fetchGroups(instance)` — `GET /group/fetchAllGroups`
+  - `getBase64FromMediaMessage(instance, messageId, remoteJid)` — `POST /chat/getBase64FromMediaMessage`
+  - `findContacts(instance)` — `POST /chat/findContacts`
+  - `fetchChats(instance)` — `GET /chat/findChats`
 
-### 9. Users (Admin CRUD)
-- **Route prefix**: `/admin/users` → `AdminUserController`
-- **DataTable (yajra)**: `app/DataTables/UsersDataTable.php`
-- **Sidebar**: "Users" inside Configuración
-- **Auth guard**: `admin` role via Spatie; shared prop `auth.can.access_admin`
+### 7. Notificaciones Globales
+- **Context**: `resources/js/contexts/notifications-context.tsx`
+- **Registration**: Wrapped in `app.tsx` as `<NotificationsProvider>`
+- **Bell**: `notification-bell.tsx` in header with red badge counter
+- **Panel**: `notifications-sheet.tsx` — custom side panel (no Radix)
+- **Flow**: socket listener → `notify:message` event → Context aggregates by `instance+channel_id` → localStorage (max 20)
 
-### 10. Roles (Admin CRUD)
-- **Route prefix**: `/admin/roles` → `AdminRoleController`
-- **DataTable (Yajra)**: `app/DataTables/RolesDataTable.php` — includes `users_count`
-- **Page**: `resources/js/pages/admin/roles/index.tsx` — DataTable list + read-only Sheet for details + Dialog for create/edit
-- **Blade partial**: `resources/views/admin/roles/actions.blade.php` — DataTable action buttons
-- **Protected role**: `admin` role cannot be modified or deleted
-- **Sidebar**: "Roles" inside Configuración with `ShieldCheck` icon
-
-### 11. WooCommerce (POS + Orders + Products + Calendar)
-- **Controller**: `app/Http/Controllers/Admin/AdminWooCommerceController.php`
-- **All routes** in `routes/web.php` under `/admin/woocommerce/*`
-- **WooCommerce API** via `codexshaper/laravel-woocommerce` facade (`Order`, `Product`, `Customer`, etc.)
-- **Important**: WooCommerce REST API returns `stdClass`, not arrays — cast to `(array)` before `$obj['key']` access in PHP 8+
-- **POS** (`/admin/woocommerce/pos` → `resources/js/pages/admin/woocommerce/pos.tsx`):
-  - Full-featured POS with variable products, coupons, subscription sale type
-  - Sale type toggle (Directa / Suscripción) with manual title + end date
-  - Subscription data stored as WooCommerce order meta (`_is_pos_subscription`, `_subscription_title`, `_subscription_end_date`, `_subscription_start_date`)
-  - Contact image via `_contact_id` WooCommerce meta → resolved from local `Contact` model
-  - Print ticket: uses `Blob` + `URL.createObjectURL` (not `document.write`) to avoid TrustedScript errors
-  - Calendar button + Dashboard button in product grid filters area
-- **Products** (`/admin/woocommerce/products` → `resources/js/pages/admin/woocommerce/products/index.tsx`):
-  - Table rows clickable → opens Sheet sidebar with product details (image, price, stock, categories, brands, tags, attributes, variations, delete)
-  - Read-only (no create/edit buttons), No page heading
-  - JSON endpoint: `GET /admin/woocommerce/products/{id}`
-- **Orders** (`/admin/woocommerce/orders` → `resources/js/pages/admin/woocommerce/orders/index.tsx`):
-  - Table rows clickable → opens Sheet sidebar with order details (billing, shipping, products, coupons, notes, subscription meta)
-  - Customer avatar shown in billing section (not header), Delete button with ConfirmDialog
-  - No page heading, No separate show page
-  - JSON endpoint: `GET /admin/woocommerce/orders/{id}`, `DELETE /admin/woocommerce/orders/{id}`
-- **Calendar** (`/admin/woocommerce/subscriptions/calendar` → `resources/js/pages/admin/woocommerce/subscriptions/calendar.tsx`):
-  - FullCalendar dayGridMonth, Event click opens Sheet with order details
-  - Customer avatar shown in Cliente section (not header), JSON endpoint: `GET /admin/woocommerce/subscriptions/calendar-data`
-- **Dashboard** (`/admin/woocommerce` → `resources/js/pages/admin/woocommerce/index.tsx`):
-  - Stats cards, No page heading
-- **Customers**: Removed entirely
-- **Sidebar**: WooCommerce section with POS, Products, Orders (no Dashboard child)
-- **No local DB tables** — all data via WooCommerce REST API
-
-## WooCommerce Key Conventions
-
-- `formatOrder()` helper always casts `(array)` before array access on stdClass
-- Subscription metadata: `_is_pos_subscription`, `_subscription_title`, `_subscription_end_date`, `_subscription_start_date`
-- Contact photo: stored as `_contact_id` meta, resolved via `Contact` model `profile_pic_url`
-- No Inertia page for show views — all detail viewing via Sheet sidebars fetched client-side with `fetch()`
-- Delete operations use `fetch()` with `DELETE` method + `X-CSRF-TOKEN` header (not Inertia `router.delete()`)
-- `Customer` facade no longer imported (customers removed)
-
-### 12. Deals (Pipeline CRM)
-- **Route prefix**: `/admin/deals` → `AdminDealController`
-- **Controller**: `app/Http/Controllers/Admin/AdminDealController.php` (CRUD + moveStage)
-- **Stage management**: `app/Http/Controllers/Admin/AdminPipelineStageController.php` (index, store, update, destroy, reorder)
-- **Models**: `Pipeline`, `PipelineStage`, `Deal` (softDeletes)
-- **DataTable (Yajra)**: `app/DataTables/DealsDataTable.php` — includes contact_name, stage_name, assigned_name
-- **Defaults**:
-  - Single pipeline "Sales Pipeline" seeded with 5 stages: Nuevo, Cotizado, Negociación, Ganado, Perdido
-  - Colors: gray, amber, blue, green, red
-- **Page**: `resources/js/pages/admin/deals/index.tsx` — toggle between Kanban and Table views
-- **Components**:
-  - `kanban-board.tsx` — drag & drop columns via `@hello-pangea/dnd`
-  - `deal-card.tsx` — card with title, value, contact avatar, probability
-  - `deal-form-dialog.tsx` — create/edit dialog
-  - `deal-detail-sheet.tsx` — read-only detail sheet
-  - `manage-stages-dialog.tsx` — add/edit/delete/reorder stages
-- **Views**: Kanban (default, 5 columns with droppable zones) and Table (Yajra DataTable, sortable/searchable/paginated)
-- **Shared prop**: pipeline + stages loaded via `AdminDealController::index()`
-- **Sidebar**: "Deals" (TrendingUp icon) in Platform section below Dashboard
-
-### 13. AI Agent (Ollama chat asistente)
-
-**Stack**: Laravel AI SDK v0.7, Ollama (local LLM provider)
-- **Route**: `POST /admin/ai-agent/chat` → `AdminAiAgentController::chat`
-- **Agent class**: `app/Ai/Agents/CrmAgent` — implements `Agent`, uses `Promptable`
-- **System prompt**: configurable via `AI_AGENT_INSTRUCTIONS` en `.env` (leído en `config/ai.php` y expuesto en `CrmAgent::instructions()`)
-- **Provider/model**: `AI_AGENT_PROVIDER` (default `ollama`) y `AI_AGENT_MODEL` (default `llama3.1:8b`) en `.env`
-- **No persistencia**: mensajes no se guardan en DB (stateless, cada llamada es independiente)
-- **Frontend**:
-  - `resources/js/components/ai-agent/ai-agent-floating-button.tsx` — botón flotante neutro (gris, `BotMessageSquare`)
-  - `resources/js/components/ai-agent/ai-agent-chat-panel.tsx` — Sheet con chat, file upload (Medios), audio recording
-  - Inyectado en `resources/js/layouts/app-layout.tsx` — aparece en todas las páginas admin
-- **File/audio send**: sube a Medios (`POST /admin/media/upload`), no se envía el archivo al LLM
-- **Sidebar**: no tiene entrada en sidebar (es flotante)
-
-### 14. Web Widgets (Live Chat Widget)
-
-**Public-facing embeddable chat widget** for external websites. Domain-based matching — each widget is tied to a domain.
-
-- **Public JS**: `public/js/widget.js` — self-contained, injects UI into any page
-- **Embed**: `<script src="http://pos.local/js/widget.js"></script>` (loads from Laravel server)
+### 8. Web Widgets (Live Chat Widget)
+- **Public JS**: `public/js/widget.js` — self-contained, **injects `intl-tel-input` dynamically** (CSS + JS from server)
+- **Embed**: `<script src="/js/widget.js"></script>` (loads from Laravel server)
+- **Features**: pre-chat form (name required, email, phone with country flags autodetection, message)
 - **API prefix**: `routes/api.php` under `/api/widget/*` with `WidgetCors` middleware
 - **Controller**: `app/Http/Controllers/Web/WidgetController.php`
-- **Admin CRUD**: `app/Http/Controllers/Admin/AdminWebWidgetController.php` → `/admin/web-widgets`
-- **Admin page**: `resources/js/pages/admin/web-widgets/index.tsx`
-- **Sidebar**: "Web Widgets" entry in sidebar (dynamic: only shows when widgets exist in DB)
+- **Admin**: via Inboxes (type=web) — see Inboxes module
+- **Models**: `WebWidget`, `WebVisitor`, `WebConversation`, `WebMessage`
+- **Widget creates inbox** — when `type=web` inbox is created, WebWidget is auto-created with defaults
 
-**Models**:
-- `WebWidget` — `name`, `domain`, `color`, `position`, `greeting`, `is_active`
-- `WebVisitor` — `uuid`, `name`, `email`, `phone`, `ip`, `user_agent`, `current_page`, `first_seen_at`, `last_seen_at`
-- `WebConversation` — `visitor_id`, `widget_id`, `assigned_to`, `status` (pending/active/closed), `unread_count`
-- `WebMessage` — `conversation_id`, `content`, `is_from_visitor`
+### 9. Queue (Redis + PM2)
+- **Backend**: Redis (`QUEUE_CONNECTION=redis`, via `predis/predis`)
+- **Worker**: `php artisan queue:listen --tries=3 --timeout=120` managed by PM2 (`ecosystem.config.cjs` → app `queue`)
+- **Why PM2**: keeps worker alive 24/7, auto-restart on crash
+- **Key queue**: `default`
+- **Job**: `ProcessEvolutionWebhook` — processes incoming WhatsApp messages async
 
-**Relationships** (critical: foreign keys must be explicit):
-```php
-// WebConversation
-visitor()       → belongsTo(WebVisitor::class, 'visitor_id')
-widget()        → belongsTo(WebWidget::class, 'widget_id')
-assignedUser()  → belongsTo(User::class, 'assigned_to')
-messages()      → hasMany(WebMessage::class, 'conversation_id')
+### 10. Medios (File manager)
+- **Route**: `/admin/media` → `AdminMediaController`
+- **Storage**: `storage/app/public/`
+- **Filters**: type (image/video/audio/document/archive/other) and size (tiny/small/medium/large) via `GET /admin/media/list?type=X&size=Y`
+- **Used by**: Entradas (file/audio attachment upload before send), AI Agent
 
-// WebMessage
-conversation()  → belongsTo(WebConversation::class, 'conversation_id')
-```
+### 11. Deals (Pipeline CRM)
+- **Route**: `/admin/deals` → `AdminDealController`
+- **Models**: `Pipeline`, `PipelineStage`, `Deal` (softDeletes)
+- **Views**: Kanban (drag & drop via `@hello-pangea/dnd`) + Table (Yajra DataTable)
 
-**API flow**:
-1. `GET /api/widget/config` — looks up widget by `Origin`/`Referer` host (strips scheme). Returns `widget_id`, `color`, `position`, `greeting`
-2. `POST /api/widget/visitor` — registers/updates visitor by `uuid`. Returns `visitor.id`
-3. `GET /api/widget/conversations?visitor_id=` — returns existing active conversation with messages
-4. `POST /api/widget/conversations` — creates conversation + first message (visitor side). Increments `unread_count`
-5. `POST /api/widget/messages` — sends message to existing conversation. If closed, reopens as `pending`
+### 12. AI Agent (Ollama)
+- **Route**: `POST /admin/ai-agent/chat` → `AdminAiAgentController::chat`
+- **Stack**: Laravel AI SDK v0.7, Ollama
+- **UI**: Header button → Sheet with file/audio/text input
 
-**Domain matching** (`WidgetController::config`):
-- Extracts host from `Origin` header (or falls back to `Referer`) using `parse_url()`
-- Matches against stored domain with or without scheme: `pos.local`, `http://pos.local`, `https://pos.local`
-- Only returns active widgets (`is_active = true`)
+### 13. WooCommerce (POS + Orders + Products)
+- **Controller**: `AdminWooCommerceController.php`
+- **All routes** under `/admin/woocommerce/*`
+- **No local DB** — all data via REST API
 
-**WidgetCors middleware** (`app/Http/Middleware/WidgetCors.php`):
-- Applied to all `/api/widget/*` routes
-- Sets `Access-Control-Allow-Origin: *`
-- Handles OPTIONS preflight requests
+### 14. Users & Roles (Admin CRUD)
+- **Routes**: `/admin/users`, `/admin/roles`
+- **DataTables**: Yajra
+- **Auth guard**: `admin` role via Spatie
 
-**widget.js** (`public/js/widget.js`):
-- Self-contained vanilla JS, no dependencies
-- Creates DOM elements: floating button, chat panel, messages area, input
-- Polls `/api/widget/conversations` every 3s for new messages
-- Stores visitor UUID in `localStorage` (`crm_widget_uuid`)
-- `api()` function uses default parameter `opts = {}` — GET requests don't need opts
+## Key Architectural Decisions
 
-### 15. Admin Web Chat (Agent interface)
-
-**Admin interface** for responding to widget conversations.
-
-- **Route prefix**: `/admin/web-chat` → `AdminWebChatController`
-- **Controller**: `app/Http/Controllers/Admin/AdminWebChatController.php`
-- **Page**: `resources/js/pages/admin/web-chat/index.tsx`
-- **Sidebar**: "Web Chat" in sidebar (dynamic: only shows when widgets exist in DB)
-
-**Endpoints**:
-- `GET /admin/web-chat` → Inertia page
-- `GET /admin/web-chat/conversations` → JSON: all conversations with visitor, widget, assigned user, last message
-- `GET /admin/web-chat/conversations/{id}/messages` → JSON: messages for a conversation
-- `POST /admin/web-chat/conversations/{id}/send` → agent reply (creates message with `is_from_visitor = false`)
-- `POST /admin/web-chat/conversations/{id}/assign` → assign conversation to a user
-- `POST /admin/web-chat/conversations/{id}/close` → close conversation
-
-**Conversations query** (`AdminWebChatController::conversations`):
-- Orders by status: `CASE WHEN 'pending' THEN 1 WHEN 'active' THEN 2 WHEN 'closed' THEN 3 END` (SQLite compatible, NOT MySQL `FIELD()`)
-- Eager loads: `visitor`, `widget`, `assignedUser`
-- Returns: `unread_count`, `last_message`, `last_message_at`
-
-**Shared props** (`HandleInertiaRequests`):
-- `webWidgets` — `WebWidget::where('is_active', true)->get(['id', 'name'])` — used by sidebar to show widget inboxes
+- **Inboxes centralize all message sources** — no more separate CRUD per type
+- **Webhook per inbox** — each inbox gets its own URL (`/api/webhooks/evolution/{name}`)
+- **Async processing via queue** — webhooks return 200 immediately, processing happens in background (Redis queue via PM2)
+- **Message dedup** — WhatsApp `message_id` is stored and checked before insert; same message_id from multiple instances creates only 1 record
+- **`firstOrCreate` for contacts** — never overwrite existing contact data
+- **No inbox check in webhook controller** — all messages are processed regardless of inbox existence
+- **Group names safe** — `safeGroupName()` wraps fetch in try/catch; fallback is `"Group {last8}"` NOT `$pushName` (sender name)
+- **Outgoing contact names**: when `fromMe=true`, contact name is NOT saved (avoids showing instance owner's name as contact)
 
 ## Testing
 
 - **Pest** framework. Tests in `tests/Feature/` and `tests/Unit/`.
 - Feature tests auto-use `RefreshDatabase` trait.
-- SQLite in-memory database in tests (`phpunit.xml`).
+- MySQL in tests (or SQLite in-memory via `phpunit.xml`).
 - No front-end tests exist.
-- **Seeders**: `EntradasTestSeeder` (70 WhatsApp conversations), `WebWidgetSeeder` (1 widget + 3 visitor conversations + messages).
 
-## CI
-
-- Two workflows: `lint.yml` (pint + prettier + eslint) and `tests.yml` (PHP 8.3/8.4/8.5 matrix, Node 22, Pest).
-- CI triggers: `develop`, `main`, `master`, `workos` branches + PRs.
 
 ## Conventions
 

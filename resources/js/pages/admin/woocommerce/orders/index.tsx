@@ -1,5 +1,4 @@
 import { Head } from '@inertiajs/react';
-import { useCallback, useEffect, useState } from 'react';
 import {
     ShoppingBag,
     User,
@@ -10,9 +9,11 @@ import {
     Package,
     Trash2,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { useCallback, useEffect, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
     Sheet,
     SheetContent,
@@ -28,7 +29,6 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import type { WooOrder, WooPaginatedResponse } from '@/types';
 
@@ -72,9 +72,11 @@ function avatarColor(name: string): string {
         'bg-rose-500',
     ];
     let hash = 0;
+
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
+
     return colors[Math.abs(hash) % colors.length];
 }
 
@@ -96,7 +98,10 @@ export default function WooOrdersIndex() {
     const fetchOrders = useCallback(() => {
         setLoading(true);
         const params = new URLSearchParams({ per_page: String(perPage), page: String(page) });
-        if (status) params.set('status', status);
+
+        if (status) {
+params.set('status', status);
+}
 
         fetch(`/admin/woocommerce/orders?${params}`, {
             headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -119,10 +124,12 @@ export default function WooOrdersIndex() {
         setSelectedId(id);
         setLoadingDetail(true);
         setPicSrc(undefined);
+
         try {
             const res = await fetch(`/admin/woocommerce/orders/${id}`, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
+
             if (res.ok) {
                 const json = await res.json();
                 setOrder(json.data);
@@ -139,7 +146,10 @@ export default function WooOrdersIndex() {
         o.billing?.first_name ? `${o.billing.first_name} ${o.billing.last_name}`.trim() : '';
 
     const handleDelete = () => {
-        if (!order) return;
+        if (!order) {
+return;
+}
+
         confirm(
             async () => {
                 try {
@@ -150,7 +160,11 @@ export default function WooOrdersIndex() {
                             'Accept': 'application/json',
                         },
                     });
-                    if (!res.ok) throw new Error((await res.json()).error ?? 'Error al eliminar');
+
+                    if (!res.ok) {
+throw new Error((await res.json()).error ?? 'Error al eliminar');
+}
+
                     setSelectedId(null);
                     setOrder(null);
                     setPicSrc(undefined);
@@ -246,7 +260,11 @@ export default function WooOrdersIndex() {
                 </div>
             </div>
 
-            <Sheet open={selectedId !== null} onOpenChange={(o) => { if (!o) { setSelectedId(null); setOrder(null); setPicSrc(undefined); } }}>
+            <Sheet open={selectedId !== null} onOpenChange={(o) => {
+ if (!o) {
+ setSelectedId(null); setOrder(null); setPicSrc(undefined); 
+} 
+}}>
                 <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
                     {loadingDetail && (
                         <div className="flex items-center justify-center h-full">

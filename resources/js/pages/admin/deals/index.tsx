@@ -1,9 +1,5 @@
 import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useState } from 'react';
-import { KanbanBoard } from '@/pages/admin/deals/components/kanban-board';
-import { DealFormDialog } from '@/pages/admin/deals/components/deal-form-dialog';
-import { DealDetailSheet } from '@/pages/admin/deals/components/deal-detail-sheet';
-import { ManageStagesDialog } from '@/pages/admin/deals/components/manage-stages-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +14,10 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
+import { DealDetailSheet } from '@/pages/admin/deals/components/deal-detail-sheet';
+import { DealFormDialog } from '@/pages/admin/deals/components/deal-form-dialog';
+import { KanbanBoard } from '@/pages/admin/deals/components/kanban-board';
+import { ManageStagesDialog } from '@/pages/admin/deals/components/manage-stages-dialog';
 import { index as adminDealsIndex } from '@/routes/admin/deals';
 import type { Contact } from '@/types';
 
@@ -154,13 +154,18 @@ export default function DealsIndex({
         })
             .then((res) => (res.ok ? res.json() : null))
             .then((json) => {
-                if (json?.pipeline) setPipeline(json.pipeline);
+                if (json?.pipeline) {
+setPipeline(json.pipeline);
+}
             })
             .catch(() => {});
     }, []);
 
     useEffect(() => {
-        if (view !== 'table') return;
+        if (view !== 'table') {
+return;
+}
+
         setLoading(true);
         const qs = buildDtParams(page, pageLength, sort, search);
         const controller = new AbortController();
@@ -199,6 +204,7 @@ export default function DealsIndex({
             },
             body: JSON.stringify({ stage_id: targetStageId }),
         });
+
         if (res.ok) {
             fetchKanban();
         }
@@ -218,8 +224,12 @@ export default function DealsIndex({
                         Accept: 'application/json',
                     },
                 });
+
                 if (res.ok) {
-                    if (viewDeal?.id === deal.id) setViewDeal(null);
+                    if (viewDeal?.id === deal.id) {
+setViewDeal(null);
+}
+
                     setRefreshKey((k) => k + 1);
                     fetchKanban();
                 }
@@ -430,10 +440,17 @@ export default function DealsIndex({
                                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
                                 {Array.from({ length: totalPages > 5 ? 5 : totalPages }, (_, i) => {
                                     let pn: number;
-                                    if (totalPages <= 5) pn = i + 1;
-                                    else if (page <= 3) pn = i + 1;
-                                    else if (page >= totalPages - 2) pn = totalPages - 4 + i;
-                                    else pn = page - 2 + i;
+
+                                    if (totalPages <= 5) {
+pn = i + 1;
+} else if (page <= 3) {
+pn = i + 1;
+} else if (page >= totalPages - 2) {
+pn = totalPages - 4 + i;
+} else {
+pn = page - 2 + i;
+}
+
                                     return (
                                         <Button key={pn} variant={pn === page ? 'default' : 'outline'} size="sm" className="px-2" onClick={() => setPage(pn)}>
                                             {pn}

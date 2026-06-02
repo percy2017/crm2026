@@ -27,7 +27,7 @@ class EntradasTestSeeder extends Seeder
         ];
 
         foreach ($contacts as $contact) {
-            $channelId = $contact->whatsapp_id ?? $contact->phone . '@s.whatsapp.net';
+            $channelId = $contact->whatsapp_id ?? $contact->phone.'@s.whatsapp.net';
             $instance = $contact->instance ?? fake()->randomElement(['entel1', 'tigo1', 'viva1']);
 
             Conversation::firstOrCreate(
@@ -55,6 +55,6 @@ class EntradasTestSeeder extends Seeder
 
         $bar->finish();
         $this->command->newLine();
-        $this->command->info('Created conversations with messages for ' . $contacts->count() . ' contacts.');
+        $this->command->info('Created conversations with messages for '.$contacts->count().' contacts.');
     }
 }

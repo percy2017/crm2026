@@ -36,7 +36,7 @@ class AdminRoleController extends Controller
 
         $role = Role::create(['name' => $validated['name']]);
 
-        if (!empty($validated['permissions'])) {
+        if (! empty($validated['permissions'])) {
             $role->syncPermissions($validated['permissions']);
         }
 
@@ -53,7 +53,7 @@ class AdminRoleController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:roles,name,' . $role->id,
+            'name' => 'required|string|max:255|unique:roles,name,'.$role->id,
             'permissions' => 'nullable|array',
             'permissions.*' => 'string|exists:permissions,name',
         ]);

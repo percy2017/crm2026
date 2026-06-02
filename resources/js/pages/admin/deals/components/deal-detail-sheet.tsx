@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
 import { Calendar, DollarSign, User, Target, FileText, TrendingUp } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,9 +12,8 @@ import {
     SheetDescription,
     SheetFooter,
 } from '@/components/ui/sheet';
-import { index as adminDealsIndex } from '@/routes/admin/deals';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { index as adminDealsIndex } from '@/routes/admin/deals';
 
 type DealDetail = {
     id: number;
@@ -47,6 +47,7 @@ export function DealDetailSheet({ dealId, onClose, onEdit, onDeleted }: Props) {
     useEffect(() => {
         if (dealId === null) {
             setDeal(null);
+
             return;
         }
 
@@ -61,7 +62,10 @@ export function DealDetailSheet({ dealId, onClose, onEdit, onDeleted }: Props) {
     }, [dealId]);
 
     const handleDelete = useCallback(() => {
-        if (!deal) return;
+        if (!deal) {
+return;
+}
+
         confirm(
             async () => {
                 const res = await fetch(`${adminDealsIndex().url}/${deal.id}`, {
@@ -71,6 +75,7 @@ export function DealDetailSheet({ dealId, onClose, onEdit, onDeleted }: Props) {
                         Accept: 'application/json',
                     },
                 });
+
                 if (res.ok) {
                     onDeleted(deal);
                 }
@@ -84,7 +89,11 @@ export function DealDetailSheet({ dealId, onClose, onEdit, onDeleted }: Props) {
 
     return (
         <>
-            <Sheet open={dealId !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
+            <Sheet open={dealId !== null} onOpenChange={(o) => {
+ if (!o) {
+onClose();
+} 
+}}>
                 <SheetContent className="w-full sm:max-w-md overflow-y-auto">
                     <SheetHeader>
                         <SheetTitle>{deal?.title ?? 'Deal Details'}</SheetTitle>

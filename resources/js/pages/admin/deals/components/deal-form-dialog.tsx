@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
@@ -7,7 +8,6 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -18,8 +18,8 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { index as adminDealsIndex } from '@/routes/admin/deals';
 import type { DealData } from '@/pages/admin/deals/index';
+import { index as adminDealsIndex } from '@/routes/admin/deals';
 
 type Pipeline = { id: number; name: string; stages: { id: number; name: string }[] } | null;
 type Contact = { id: number; name: string; phone: string };
@@ -81,6 +81,7 @@ export function DealFormDialog({ open, deal, pipeline, contacts, users, onClose,
 
     const handleSubmit = async () => {
         setSaving(true);
+
         try {
             const body: Record<string, unknown> = {
                 title,
@@ -121,7 +122,11 @@ export function DealFormDialog({ open, deal, pipeline, contacts, users, onClose,
     };
 
     return (
-        <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <Dialog open={open} onOpenChange={(o) => {
+ if (!o) {
+onClose();
+} 
+}}>
             <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{isEdit ? 'Edit Deal' : 'Create Deal'}</DialogTitle>

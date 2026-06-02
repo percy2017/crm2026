@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Events\WebMessageCreated;
 use App\Http\Controllers\Controller;
 use App\Models\WebConversation;
 use App\Models\WebMessage;
@@ -17,19 +18,19 @@ class WidgetController extends Controller
     {
         $host = parse_url($request->header('Origin', '') ?: $request->header('Referer', ''), PHP_URL_HOST);
 
-        if (!$host) {
+        if (! $host) {
             return response()->json(['error' => 'Widget not configured for this domain'], 404);
         }
 
         $widget = WebWidget::where('is_active', true)
             ->where(function ($query) use ($host) {
                 $query->where('domain', $host)
-                    ->orWhere('domain', 'http://' . $host)
-                    ->orWhere('domain', 'https://' . $host);
+                    ->orWhere('domain', 'http://'.$host)
+                    ->orWhere('domain', 'https://'.$host);
             })
             ->first();
 
-        if (!$widget) {
+        if (! $widget) {
             return response()->json(['error' => 'Widget not configured for this domain'], 404);
         }
 
@@ -79,7 +80,7 @@ class WidgetController extends Controller
             ->latest()
             ->first();
 
-        if (!$conversation) {
+        if (! $conversation) {
             return response()->json(['conversation' => null]);
         }
 
@@ -102,8 +103,18 @@ class WidgetController extends Controller
         $data = $request->validate([
             'visitor_id' => 'required|exists:web_visitors,id',
             'widget_id' => 'required|exists:web_widgets,id',
+            'name' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:50',
             'message' => 'nullable|string|max:5000',
         ]);
+
+        $visitor = WebVisitor::find($data['visitor_id']);
+        $visitor->update(array_filter([
+            'name' => $data['name'] ?? null,
+            'email' => $data['email'] ?? null,
+            'phone' => $data['phone'] ?? null,
+        ], fn ($v) => $v !== null));
 
         $conversation = WebConversation::create([
             'visitor_id' => $data['visitor_id'],
@@ -111,25 +122,55 @@ class WidgetController extends Controller
             'status' => 'pending',
         ]);
 
-        if (!empty($data['message'])) {
-            WebMessage::create([
+        if (! empty($data['message'])) {
+            $message = WebMessage::create([
                 'conversation_id' => $conversation->id,
                 'content' => $data['message'],
                 'is_from_visitor' => true,
             ]);
+
+            $visitor->refresh();
+            $widget = WebWidget::find($data['widget_id']);
+
+            broadcast(new WebMessageCreated(
+                $conversation->id,
+                $visitor->id,
+                $visitor->name ?? 'Anonymous',
+                $widget->id,
+                $widget->name,
+                [
+                    'id' => $message->id,
+                    'content' => $message->content,
+                    'is_from_visitor' => true,
+                    'created_at' => $message->created_at->toIso8601String(),
+                ],
+            ))->toOthers();
         }
 
         return response()->json([
             'conversation' => ['id' => $conversation->id],
+            'visitor' => [
+                'id' => $visitor->id,
+                'name' => $visitor->name,
+                'email' => $visitor->email,
+                'phone' => $visitor->phone,
+            ],
         ], 201);
     }
 
     public function sendMessage(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'visitor_id' => 'required|exists:web_visitors,id',
             'conversation_id' => 'required|exists:web_conversations,id',
             'content' => 'required|string|max:5000',
         ]);
+
+        $conversation = WebConversation::find($data['conversation_id']);
+
+        if ((string) $conversation->visitor_id !== (string) $data['visitor_id']) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
 
         $message = WebMessage::create([
             'conversation_id' => $data['conversation_id'],
@@ -137,12 +178,28 @@ class WidgetController extends Controller
             'is_from_visitor' => true,
         ]);
 
-        $conversation = WebConversation::find($data['conversation_id']);
         $conversation->increment('unread_count');
 
         if ($conversation->status === 'closed') {
             $conversation->update(['status' => 'pending']);
         }
+
+        $visitor = $conversation->visitor;
+        $widget = $conversation->widget;
+
+        broadcast(new WebMessageCreated(
+            $conversation->id,
+            $visitor->id,
+            $visitor->name ?? 'Anonymous',
+            $widget->id,
+            $widget->name,
+            [
+                'id' => $message->id,
+                'content' => $message->content,
+                'is_from_visitor' => true,
+                'created_at' => $message->created_at->toIso8601String(),
+            ],
+        ))->toOthers();
 
         return response()->json([
             'message' => [

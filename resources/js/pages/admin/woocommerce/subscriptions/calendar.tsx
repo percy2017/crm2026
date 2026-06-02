@@ -1,8 +1,10 @@
-import { Head, Link } from '@inertiajs/react';
-import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
+import FullCalendar from '@fullcalendar/react';
+import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft, CalendarDays, User, ShoppingBag, TicketPercent, CreditCard } from 'lucide-react';
 import { useState } from 'react';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
     Sheet,
@@ -11,8 +13,6 @@ import {
     SheetTitle,
     SheetDescription,
 } from '@/components/ui/sheet';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import type { WooOrder } from '@/types';
 
 function getInitials(name: string): string {
@@ -33,9 +33,11 @@ function avatarColor(name: string): string {
         'bg-rose-500',
     ];
     let hash = 0;
+
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
+
     return colors[Math.abs(hash) % colors.length];
 }
 
@@ -63,10 +65,12 @@ export default function SubscriptionCalendarPage({ events }: Props) {
         setSelectedId(id);
         setLoading(true);
         setPicSrc(undefined);
+
         try {
             const res = await fetch(`/admin/woocommerce/orders/${id}`, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
+
             if (res.ok) {
                 const json = await res.json();
                 setOrder(json.data);
@@ -131,7 +135,11 @@ export default function SubscriptionCalendarPage({ events }: Props) {
                 </div>
             </div>
 
-            <Sheet open={selectedId !== null} onOpenChange={(o) => { if (!o) { setSelectedId(null); setOrder(null); setPicSrc(undefined); } }}>
+            <Sheet open={selectedId !== null} onOpenChange={(o) => {
+ if (!o) {
+ setSelectedId(null); setOrder(null); setPicSrc(undefined); 
+} 
+}}>
                 <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
                     {loading && (
                         <div className="flex items-center justify-center h-full">

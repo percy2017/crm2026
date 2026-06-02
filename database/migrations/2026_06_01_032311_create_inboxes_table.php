@@ -1,0 +1,27 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('inboxes', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->unique();
+            $table->string('type'); // evolution, web, facebook...
+            $table->string('status')->default('active'); // active, inactive
+            $table->string('webhook_url')->nullable();
+            $table->boolean('webhook_enabled')->default(false);
+            $table->json('config')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('inboxes');
+    }
+};

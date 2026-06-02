@@ -9,8 +9,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { CustomerSearch } from './customer-search';
 import type { CartItem } from '@/pages/admin/woocommerce/pos';
+import { CustomerSearch } from './customer-search';
 
 type PaymentGateway = {
     id: string;
@@ -59,6 +59,7 @@ function PriceInput({ value, quantity, onChange }: { value: number; quantity: nu
     const handleBlur = () => {
         setEditing(false);
         const parsed = Number.parseFloat(text);
+
         if (!Number.isNaN(parsed) && parsed >= 0) {
             onChange(parsed);
         } else {
@@ -70,6 +71,7 @@ function PriceInput({ value, quantity, onChange }: { value: number; quantity: nu
         if (e.key === 'Enter') {
             (e.target as HTMLInputElement).blur();
         }
+
         if (e.key === 'Escape') {
             setText(value.toFixed(2));
             setEditing(false);
@@ -292,7 +294,11 @@ export function CartPanel({
                         placeholder="Código"
                         value={couponInput}
                         onChange={(e) => setCouponInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCoupon(); }}
+                        onKeyDown={(e) => {
+ if (e.key === 'Enter') {
+handleApplyCoupon();
+} 
+}}
                         className="h-8 text-sm"
                     />
                     <Button variant="outline" size="sm" onClick={handleApplyCoupon} className="shrink-0 h-8">

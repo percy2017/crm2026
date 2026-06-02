@@ -7,12 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreContactRequest;
 use App\Http\Requests\Admin\UpdateContactRequest;
 use App\Models\Contact;
+use App\Models\Conversation;
+use App\Models\Message;
 use App\Services\EvolutionApiService;
 use App\Services\ImageProxyService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -42,6 +44,25 @@ class AdminContactController extends Controller
             $members = $contact->members()->get(['id', 'name', 'phone']);
         }
 
+        $phone = $contact->phone;
+        $chatsCount = 0;
+        $messagesCount = 0;
+        $lastMessageAt = null;
+
+        if ($phone) {
+            $chatsQuery = Conversation::where('contact_id', $contact->id);
+            $chatsCount = $chatsQuery->count();
+
+            $channelIds = $chatsQuery->pluck('channel_id');
+
+            if ($channelIds->isNotEmpty()) {
+                $messagesCount = Message::whereIn('channel_id', $channelIds)->count();
+                $lastMessageAt = Message::whereIn('channel_id', $channelIds)
+                    ->latest('created_at')
+                    ->value('created_at');
+            }
+        }
+
         $data = $contact->toArray();
 
         $data['profile_pic_url'] = $contact->profile_pic_url
@@ -56,6 +77,9 @@ class AdminContactController extends Controller
             ...$data,
             'groups' => $groups ?? [],
             'members' => $members ?? [],
+            'chats_count' => $chatsCount,
+            'messages_count' => $messagesCount,
+            'last_message_at' => $lastMessageAt,
         ]);
     }
 
@@ -79,6 +103,76 @@ class AdminContactController extends Controller
         return Inertia::render('admin/contacts/create', [
             'instances' => $instanceNames,
             'countries' => $countries,
+        ]);
+    }
+
+    public function import(EvolutionApiService $evolution): Response
+    {
+        $instances = [];
+
+        try {
+            $allInstances = $evolution->fetchInstances();
+            $instances = array_map(fn ($i) => $i['name'], $allInstances);
+        } catch (\Exception $e) {
+            report($e);
+        }
+
+        $countries = Contact::whereNotNull('country')
+            ->distinct()
+            ->orderBy('country')
+            ->pluck('country');
+
+        return Inertia::render('admin/contacts/import', [
+            'instances' => $instances,
+            'countries' => $countries,
+        ]);
+    }
+
+    public function importCsv(Request $request): JsonResponse
+    {
+        $rows = $request->validate([
+            'rows' => 'required|array',
+            'rows.*.phone' => 'required|string|max:191',
+            'rows.*.name' => 'nullable|string|max:255',
+            'rows.*.email' => 'nullable|email|max:255',
+            'rows.*.country' => 'nullable|string|max:4',
+            'rows.*.notes' => 'nullable|string',
+        ])['rows'];
+
+        $imported = 0;
+        $skipped = 0;
+        $errors = [];
+
+        foreach ($rows as $row) {
+            $phone = $row['phone'];
+
+            if (Contact::where('phone', $phone)->exists()) {
+                $skipped++;
+
+                continue;
+            }
+
+            try {
+                Contact::create([
+                    'name' => $row['name'] ?? null,
+                    'phone' => $phone,
+                    'email' => $row['email'] ?? null,
+                    'country' => $row['country'] ?? null,
+                    'notes' => $row['notes'] ?? null,
+                    'type' => 'individual',
+                    'is_active' => true,
+                ]);
+
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = "Phone {$phone}: {$e->getMessage()}";
+            }
+        }
+
+        return response()->json([
+            'imported' => $imported,
+            'skipped' => $skipped,
+            'errors' => $errors,
         ]);
     }
 
@@ -454,8 +548,8 @@ class AdminContactController extends Controller
     {
         if (
             $contact->profile_pic_url
-            && !str_starts_with($contact->profile_pic_url, 'http')
-            && !str_starts_with($contact->profile_pic_url, '/storage/')
+            && ! str_starts_with($contact->profile_pic_url, 'http')
+            && ! str_starts_with($contact->profile_pic_url, '/storage/')
         ) {
             Storage::disk('public')->delete($contact->profile_pic_url);
         }
@@ -475,8 +569,8 @@ class AdminContactController extends Controller
         foreach ($contacts as $contact) {
             if (
                 $contact->profile_pic_url
-                && !str_starts_with($contact->profile_pic_url, 'http')
-                && !str_starts_with($contact->profile_pic_url, '/storage/')
+                && ! str_starts_with($contact->profile_pic_url, 'http')
+                && ! str_starts_with($contact->profile_pic_url, '/storage/')
             ) {
                 Storage::disk('public')->delete($contact->profile_pic_url);
             }

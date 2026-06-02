@@ -213,6 +213,64 @@ class EvolutionApiService
         return $response->json() ?? [];
     }
 
+    public function getBase64FromMediaMessage(string $instance, string $messageId, string $remoteJid): array
+    {
+        $response = $this->client()->post("/chat/getBase64FromMediaMessage/{$instance}", [
+            'message' => [
+                'key' => [
+                    'id' => $messageId,
+                    'remoteJid' => $remoteJid,
+                    'fromMe' => false,
+                ],
+            ],
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function setWebhook(string $instance, string $url, bool $enabled = true, array $events = ['MESSAGES_UPSERT']): array
+    {
+        $response = $this->client()->post("/webhook/set/{$instance}", [
+            'webhook' => [
+                'url' => $url,
+                'enabled' => $enabled,
+                'events' => $events,
+                'webhookBase64' => true,
+            ],
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error (setWebhook): {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function fetchWebhookStatus(string $instance): ?array
+    {
+        try {
+            $response = $this->client()->get("/webhook/find/{$instance}");
+
+            if ($response->failed()) {
+                return null;
+            }
+
+            return $response->json() ?? [];
+        } catch (\Exception $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
     private function client(): PendingRequest
     {
         return Http::baseUrl($this->serverUrl)

@@ -15,10 +15,16 @@ export function useConfirmDialog() {
 
     const dialogProps = {
         open: config !== null,
-        onOpenChange: (open: boolean) => { if (!open) setConfig(null); },
+        onOpenChange: (open: boolean) => {
+ if (!open) {
+setConfig(null);
+} 
+},
         title: config?.title ?? '',
         description: config?.description ?? '',
-        onConfirm: () => { config?.onConfirm(); setConfig(null); },
+        onConfirm: () => {
+ config?.onConfirm(); setConfig(null); 
+},
     };
 
     return { confirm, dialogProps };

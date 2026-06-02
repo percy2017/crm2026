@@ -1,4 +1,6 @@
+import { router } from '@inertiajs/react';
 import { CalendarDays, LayoutDashboard, Search } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
     Select,
@@ -7,10 +9,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
-import { ProductCard } from './product-card';
 import type { WooProduct } from '@/types';
-import { router } from '@inertiajs/react';
+import { ProductCard } from './product-card';
 
 type Category = { id: number; name: string; slug: string };
 

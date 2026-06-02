@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 type Contact = {
     id: number;
@@ -25,15 +25,20 @@ export function CustomerSearch({ customer: contact, onSelect, onClear }: Props) 
 
     const handleSearch = async (q: string) => {
         setSearch(q);
+
         if (!q.trim()) {
             setResults([]);
+
             return;
         }
+
         setSearching(true);
+
         try {
             const res = await fetch(`/admin/woocommerce/pos/contacts?search=${encodeURIComponent(q)}`, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
+
             if (res.ok) {
                 const json = await res.json();
                 setResults(json.data ?? []);

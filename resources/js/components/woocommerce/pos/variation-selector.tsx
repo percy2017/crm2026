@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
 import { ShoppingCart } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { WooProduct } from '@/types';
 
@@ -41,7 +41,9 @@ export function VariationSelector({ product, open, onClose, onSelect }: Props) {
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        if (!open || !product || product.type !== 'variable') return;
+        if (!open || !product || product.type !== 'variable') {
+return;
+}
 
         setLoading(true);
 
@@ -55,7 +57,10 @@ export function VariationSelector({ product, open, onClose, onSelect }: Props) {
     }, [open, product]);
 
     const handleSelect = (variation: WooVariation) => {
-        if (!product) return;
+        if (!product) {
+return;
+}
+
         onSelect(product, variation);
         onClose();
     };
@@ -64,7 +69,11 @@ export function VariationSelector({ product, open, onClose, onSelect }: Props) {
     const brand = product?.brands?.[0]?.name;
 
     return (
-        <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+        <Dialog open={open} onOpenChange={(v) => {
+ if (!v) {
+onClose();
+} 
+}}>
             <DialogContent className="sm:max-w-sm">
                 <DialogHeader>
                     <DialogTitle>{product?.name}</DialogTitle>

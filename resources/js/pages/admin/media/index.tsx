@@ -1,9 +1,16 @@
 import { Head, router } from '@inertiajs/react';
+import { Check, Copy, CalendarDays, HardDrive, FileType, Download, Trash2, X, Link as LinkIcon, Filter } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, CalendarDays, HardDrive, FileType, Download, Trash2, X, Link as LinkIcon } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import {
     Sheet,
     SheetContent,
@@ -61,16 +68,29 @@ const FILE_ICONS: Record<string, string> = {
 
 function getExtension(filename: string): string {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+
     return ext;
 }
 
 function getFileIcon(filename: string, mime: string): string {
-    if (mime.startsWith('image/')) return '🖼';
-    if (mime.startsWith('video/')) return '🎬';
-    if (mime.startsWith('audio/')) return '🎵';
-    if (mime.startsWith('text/')) return '📄';
+    if (mime.startsWith('image/')) {
+return '🖼';
+}
+
+    if (mime.startsWith('video/')) {
+return '🎬';
+}
+
+    if (mime.startsWith('audio/')) {
+return '🎵';
+}
+
+    if (mime.startsWith('text/')) {
+return '📄';
+}
 
     const ext = getExtension(filename);
+
     return FILE_ICONS[ext] ?? '📁';
 }
 
@@ -78,10 +98,22 @@ function isImage(mime: string): boolean {
     return mime.startsWith('image/');
 }
 
+function isVideo(mime: string): boolean {
+    return mime.startsWith('video/');
+}
+
+function isPdf(mime: string): boolean {
+    return mime === 'application/pdf';
+}
+
 function formatSize(bytes: number): string {
-    if (bytes === 0) return '0 B';
+    if (bytes === 0) {
+return '0 B';
+}
+
     const units = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
+
     return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
 }
 
@@ -103,6 +135,8 @@ export default function MediaIndex() {
     const [hasMore, setHasMore] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [selected, setSelected] = useState<MediaFile | null>(null);
+    const [typeFilter, setTypeFilter] = useState('');
+    const [sizeFilter, setSizeFilter] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -115,8 +149,18 @@ export default function MediaIndex() {
             setLoading(true);
         }
 
+        const params = new URLSearchParams({ page: String(pageNum), per_page: '20' });
+
+        if (typeFilter) {
+params.set('type', typeFilter);
+}
+
+        if (sizeFilter) {
+params.set('size', sizeFilter);
+}
+
         try {
-            const res = await fetch(`${adminMediaIndex().url}/list?page=${pageNum}&per_page=20`, {
+            const res = await fetch(`${adminMediaIndex().url}/list?${params}`, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
             const json: ListResponse = await res.json();
@@ -137,11 +181,14 @@ export default function MediaIndex() {
 
     useEffect(() => {
         loadFiles(1, false);
-    }, []);
+    }, [typeFilter, sizeFilter]);
 
     useEffect(() => {
         const sentinel = sentinelRef.current;
-        if (!sentinel) return;
+
+        if (!sentinel) {
+return;
+}
 
         const observer = new IntersectionObserver(
             (entries) => {
@@ -153,12 +200,16 @@ export default function MediaIndex() {
         );
 
         observer.observe(sentinel);
+
         return () => observer.disconnect();
     }, [hasMore, loadingMore, loading, page]);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
+
+        if (!file) {
+return;
+}
 
         setUploading(true);
         const formData = new FormData();
@@ -174,6 +225,7 @@ export default function MediaIndex() {
             loadFiles(1, false);
         } finally {
             setUploading(false);
+
             if (fileInputRef.current) {
                 fileInputRef.current.value = '';
             }
@@ -221,9 +273,36 @@ export default function MediaIndex() {
             <Head title="Medios" />
 
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                     <Heading title="Medios" description="Click any file to view details" />
-                    <div>
+                    <div className="flex items-center gap-2">
+                        <Filter className="size-4 text-muted-foreground shrink-0" />
+                        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v === '_all' ? '' : v)}>
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="_all">All Types</SelectItem>
+                                <SelectItem value="image">Images</SelectItem>
+                                <SelectItem value="video">Videos</SelectItem>
+                                <SelectItem value="audio">Audio</SelectItem>
+                                <SelectItem value="document">Documents</SelectItem>
+                                <SelectItem value="archive">Archives</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Select value={sizeFilter} onValueChange={(v) => setSizeFilter(v === '_all' ? '' : v)}>
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Size" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="_all">All Sizes</SelectItem>
+                                <SelectItem value="tiny">&lt; 100 KB</SelectItem>
+                                <SelectItem value="small">&lt; 1 MB</SelectItem>
+                                <SelectItem value="medium">&lt; 10 MB</SelectItem>
+                                <SelectItem value="large">≥ 10 MB</SelectItem>
+                            </SelectContent>
+                        </Select>
                         <input
                             type="file"
                             ref={fileInputRef}
@@ -251,6 +330,13 @@ export default function MediaIndex() {
                                         alt={file.name}
                                         className="size-full object-contain"
                                         loading="lazy"
+                                    />
+                                ) : isVideo(file.mime) ? (
+                                    <video
+                                        src={file.url}
+                                        className="size-full object-contain"
+                                        controls
+                                        preload="none"
                                     />
                                 ) : (
                                     <span className="text-5xl">
@@ -290,7 +376,11 @@ export default function MediaIndex() {
                 <div ref={sentinelRef} className="h-4" />
             </div>
 
-            <Sheet open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+            <Sheet open={!!selected} onOpenChange={(open) => {
+ if (!open) {
+setSelected(null);
+} 
+}}>
                 <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
                     {selected && (
                         <>
@@ -321,6 +411,18 @@ export default function MediaIndex() {
                                             src={selected.url}
                                             alt={selected.name}
                                             className="size-full object-contain"
+                                        />
+                                    ) : isVideo(selected.mime) ? (
+                                        <video
+                                            src={selected.url}
+                                            controls
+                                            className="size-full object-contain"
+                                        />
+                                    ) : isPdf(selected.mime) ? (
+                                        <iframe
+                                            src={selected.url}
+                                            className="size-full"
+                                            title={selected.name}
                                         />
                                     ) : (
                                         <span className="text-7xl">

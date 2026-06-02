@@ -1,5 +1,6 @@
-import { useState } from 'react';
 import { Head, router } from '@inertiajs/react';
+import { ChevronDown } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,6 +11,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -63,18 +70,27 @@ export default function WebWidgetsIndex({ widgets }: { widgets: Widget[] }) {
     };
 
     const handleDelete = (w: Widget) => {
-        if (!confirm(`Delete widget "${w.name}"?`)) return;
+        if (!confirm(`Delete widget "${w.name}"?`)) {
+return;
+}
+
         router.delete(`/admin/web-widgets/${w.id}`, {
             onSuccess: () => toast.success('Widget deleted'),
         });
     };
 
-    const embedCode = (w: Widget) =>
-        `<script src="${window.location.origin}/js/widget.js"></script>\n<script>\nwindow.CrmWidgetOptions = {\n  server: '${window.location.origin}',\n  color: '${w.color ?? '#3b82f6'}',\n  position: '${w.position}',\n  greeting: '${(w.greeting ?? '').replace(/'/g, "\\'")}'\n};\n</script>`;
+    const origin = window.location.origin;
 
-    const copyEmbed = (w: Widget) => {
-        navigator.clipboard.writeText(embedCode(w));
-        toast.success('Embed code copied!');
+    const embedCodeHtml = (w: Widget) =>
+        `<!-- CRM Web Widget -->\n<script src="${origin}/js/widget.js"></script>\n<script>\nwindow.CrmWidgetOptions = {\n  server: '${origin}',\n  color: '${w.color ?? '#3b82f6'}',\n  position: '${w.position}',\n  greeting: '${(w.greeting ?? '').replace(/'/g, "\\'")}'\n};\n</script>`;
+
+    const embedCodePhp = (w: Widget) =>
+        `<?php\n// CRM Web Widget\nadd_action('wp_footer', function() {\n    if (!is_page()) return;\n    ?>\n    <script src="${origin}/js/widget.js"></script>\n    <script>\n    window.CrmWidgetOptions = {\n      server: '${origin}',\n      color: '${w.color ?? '#3b82f6'}',\n      position: '${w.position}',\n      greeting: '${(w.greeting ?? '').replace(/'/g, "\\'")}'\n    };\n    </script>\n    <?php\n});`;
+
+    const copyEmbed = (w: Widget, type: 'html' | 'php') => {
+        const code = type === 'html' ? embedCodeHtml(w) : embedCodePhp(w);
+        navigator.clipboard.writeText(code);
+        toast.success(type === 'html' ? 'HTML embed code copied!' : 'PHP embed code copied!');
     };
 
     return (
@@ -89,7 +105,9 @@ export default function WebWidgetsIndex({ widgets }: { widgets: Widget[] }) {
                             Embeddable chat widgets for your websites.
                         </p>
                     </div>
-                    <Button onClick={() => { resetForm(); setShowDialog(true); }}>
+                    <Button onClick={() => {
+ resetForm(); setShowDialog(true); 
+}}>
                         Create Widget
                     </Button>
                 </div>
@@ -126,9 +144,21 @@ export default function WebWidgetsIndex({ widgets }: { widgets: Widget[] }) {
                                         </TableCell>
                                         <TableCell>{w.is_active ? 'Yes' : 'No'}</TableCell>
                                         <TableCell>
-                                            <Button variant="outline" size="sm" onClick={() => copyEmbed(w)}>
-                                                Copy Embed
-                                            </Button>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="outline" size="sm">
+                                                        Copy Embed <ChevronDown className="ml-1 size-3" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => copyEmbed(w, 'html')}>
+                                                        HTML
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => copyEmbed(w, 'php')}>
+                                                        PHP (WordPress)
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex gap-1">
@@ -144,7 +174,11 @@ export default function WebWidgetsIndex({ widgets }: { widgets: Widget[] }) {
                 </div>
             </div>
 
-            <Dialog open={showDialog} onOpenChange={(o) => { if (!o) { setShowDialog(false); resetForm(); } }}>
+            <Dialog open={showDialog} onOpenChange={(o) => {
+ if (!o) {
+ setShowDialog(false); resetForm(); 
+} 
+}}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>{editing ? 'Edit Widget' : 'Create Widget'}</DialogTitle>
@@ -182,7 +216,9 @@ export default function WebWidgetsIndex({ widgets }: { widgets: Widget[] }) {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => { setShowDialog(false); resetForm(); }}>Cancel</Button>
+                        <Button variant="outline" onClick={() => {
+ setShowDialog(false); resetForm(); 
+}}>Cancel</Button>
                         <Button onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button>
                     </DialogFooter>
                 </DialogContent>

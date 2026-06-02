@@ -8,10 +8,12 @@ class Message extends Model
 {
     protected $fillable = [
         'channel_id',
+        'message_id',
         'input_output',
         'message_type',
         'text',
         'media_url',
+        'sender_phone',
     ];
 
     protected function casts(): array

@@ -25,10 +25,12 @@ export function RecentOrdersBar({ onRefetch }: Props) {
 
     const fetchOrders = async () => {
         setLoading(true);
+
         try {
             const res = await fetch('/admin/woocommerce/pos/recent-orders', {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
+
             if (res.ok) {
                 const json = await res.json();
                 setOrders(json.data ?? []);

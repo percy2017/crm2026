@@ -71,7 +71,7 @@ class AdminWooCommerceController extends Controller
 
     public function products(Request $request): Response|JsonResponse
     {
-        if (!$request->wantsJson()) {
+        if (! $request->wantsJson()) {
             return Inertia::render('admin/woocommerce/products/index');
         }
 
@@ -283,25 +283,25 @@ class AdminWooCommerceController extends Controller
                 'line_items' => $lineItems,
             ];
 
-            if (!empty($validated['date_created'])) {
+            if (! empty($validated['date_created'])) {
                 $data['date_created'] = $validated['date_created'];
             }
 
-            if (!empty($validated['customer_note'])) {
+            if (! empty($validated['customer_note'])) {
                 $data['customer_note'] = $validated['customer_note'];
             }
 
-            if (!empty($validated['billing'])) {
+            if (! empty($validated['billing'])) {
                 $data['billing'] = $validated['billing'];
             }
 
-            if (!empty($validated['coupon_lines'])) {
+            if (! empty($validated['coupon_lines'])) {
                 $data['coupon_lines'] = $validated['coupon_lines'];
             }
 
             $metaData = [];
 
-            if (!empty($validated['billing']['contact_id'])) {
+            if (! empty($validated['billing']['contact_id'])) {
                 $metaData[] = ['key' => '_contact_id', 'value' => (int) $validated['billing']['contact_id']];
             }
 
@@ -314,7 +314,7 @@ class AdminWooCommerceController extends Controller
                 ]);
             }
 
-            if (!empty($metaData)) {
+            if (! empty($metaData)) {
                 $data['meta_data'] = $metaData;
             }
 
@@ -369,9 +369,9 @@ class AdminWooCommerceController extends Controller
                 'end' => $this->findMeta($o, '_subscription_end_date'),
                 'order_number' => $o['number'] ?? '',
                 'total' => $o['total'] ?? '0.00',
-                'customer_name' => ($billing['first_name'] ?? '') . ' ' . ($billing['last_name'] ?? ''),
+                'customer_name' => ($billing['first_name'] ?? '').' '.($billing['last_name'] ?? ''),
             ];
-        })->filter(fn ($e) => !empty($e['end']))->values()->toArray();
+        })->filter(fn ($e) => ! empty($e['end']))->values()->toArray();
     }
 
     private function findMeta($order, string $key): ?string
@@ -394,12 +394,12 @@ class AdminWooCommerceController extends Controller
     private function resolveContactProfilePic(array $order): ?string
     {
         $contactId = $this->findMeta($order, '_contact_id');
-        if (!$contactId) {
+        if (! $contactId) {
             return null;
         }
 
         $contact = Contact::find((int) $contactId);
-        if (!$contact || !$contact->profile_pic_url) {
+        if (! $contact || ! $contact->profile_pic_url) {
             return null;
         }
 
@@ -407,7 +407,7 @@ class AdminWooCommerceController extends Controller
             return $contact->profile_pic_url;
         }
 
-        return asset('storage/' . $contact->profile_pic_url);
+        return asset('storage/'.$contact->profile_pic_url);
     }
 
     public function posContacts(Request $request): JsonResponse
@@ -486,7 +486,7 @@ class AdminWooCommerceController extends Controller
 
     public function orders(Request $request): Response|JsonResponse
     {
-        if (!$request->wantsJson()) {
+        if (! $request->wantsJson()) {
             return Inertia::render('admin/woocommerce/orders/index');
         }
 

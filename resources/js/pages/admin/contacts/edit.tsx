@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn, countryFlag } from '@/lib/utils';
 import { index as adminContactsIndex } from '@/routes/admin/contacts';
 import { update as adminContactsUpdate } from '@/routes/admin/contacts';
-import { cn, countryFlag } from '@/lib/utils';
 import type { Contact } from '@/types';
 
 export default function ContactsEdit({ contact, instances, countries }: { contact: Contact; instances: string[]; countries: string[] }) {

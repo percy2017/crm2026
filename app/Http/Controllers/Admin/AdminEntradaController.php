@@ -31,6 +31,7 @@ class AdminEntradaController extends Controller
                 'id' => $conv->id,
                 'contact_id' => $conv->contact_id,
                 'channel_id' => $conv->channel_id,
+                'unread_count' => $conv->unread_count,
                 'contact' => [
                     'name' => $conv->contact->name,
                     'phone' => $conv->contact->phone,
@@ -56,21 +57,36 @@ class AdminEntradaController extends Controller
             'channel_id' => 'required|string',
         ]);
 
+        Conversation::where('channel_id', $request->input('channel_id'))
+            ->where('instance', $instance)
+            ->update(['unread_count' => 0]);
+
         $messages = Message::where('channel_id', $request->input('channel_id'))
             ->orderBy('created_at', 'desc')
             ->limit(50)
             ->get()
-            ->map(fn (Message $msg) => [
-                'id' => $msg->id,
-                'channel_id' => $msg->channel_id,
-                'input_output' => $msg->input_output,
-                'message_type' => $msg->message_type,
-                'text' => $msg->text,
-                'media_url' => $msg->media_url
-                    ? asset('storage/'.$msg->media_url)
-                    : null,
-                'created_at' => $msg->created_at,
-            ]);
+            ->map(function (Message $msg) {
+                $sender = $msg->sender_phone ? Contact::where('phone', $msg->sender_phone)->first() : null;
+
+                return [
+                    'id' => $msg->id,
+                    'channel_id' => $msg->channel_id,
+                    'input_output' => $msg->input_output,
+                    'message_type' => $msg->message_type,
+                    'text' => $msg->text,
+                    'media_url' => $msg->media_url
+                        ? asset('storage/'.$msg->media_url)
+                        : null,
+                    'created_at' => $msg->created_at,
+                    'sender_phone' => $msg->sender_phone,
+                    'sender_name' => $sender?->name,
+                    'sender_avatar' => $sender?->profile_pic_url
+                        ? (str_starts_with($sender->profile_pic_url, 'http')
+                            ? $sender->profile_pic_url
+                            : asset('storage/'.$sender->profile_pic_url))
+                        : null,
+                ];
+            });
 
         return response()->json($messages);
     }
@@ -116,6 +132,11 @@ class AdminEntradaController extends Controller
                     'text' => $request->input('text'),
                     'media_url' => $mediaUrl,
                 ]);
+
+                $keyId = $result['key']['id'] ?? null;
+                if ($keyId) {
+                    $message->update(['message_id' => $keyId]);
+                }
             } else {
                 $result = $evolution->sendText(
                     $instance,
@@ -129,6 +150,11 @@ class AdminEntradaController extends Controller
                     'message_type' => 'extendedTextMessage',
                     'text' => $request->input('text'),
                 ]);
+
+                $keyId = $result['key']['id'] ?? null;
+                if ($keyId) {
+                    $message->update(['message_id' => $keyId]);
+                }
             }
 
             $contact = Contact::where('phone', $number)->first();
@@ -146,6 +172,9 @@ class AdminEntradaController extends Controller
                         ? asset('storage/'.$message->media_url)
                         : null,
                     'created_at' => $message->created_at,
+                    'sender_phone' => null,
+                    'sender_name' => null,
+                    'sender_avatar' => null,
                 ],
                 [
                     'name' => $contact?->name,
@@ -177,5 +206,17 @@ class AdminEntradaController extends Controller
 
             return response()->json(['error' => $e->getMessage()], 422);
         }
+    }
+
+    public function destroyConversation(string $instance, Conversation $conversation): JsonResponse
+    {
+        if ($conversation->instance !== $instance) {
+            return response()->json(['error' => 'Conversation not found'], 404);
+        }
+
+        $conversation->messages()->delete();
+        $conversation->delete();
+
+        return response()->json(['deleted' => true]);
     }
 }

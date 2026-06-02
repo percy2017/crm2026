@@ -50,6 +50,7 @@ export function NavMain({ items = [], label = 'Platform' }: { items: NavItem[]; 
                                                     isActive={isCurrentUrl(child.href)}
                                                 >
                                                     <Link href={child.href} prefetch>
+                                                        {child.icon && <child.icon className="size-4" />}
                                                         <span>{child.title}</span>
                                                     </Link>
                                                 </SidebarMenuSubButton>

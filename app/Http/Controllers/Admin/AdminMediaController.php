@@ -22,6 +22,8 @@ class AdminMediaController extends Controller
     {
         $perPage = min((int) $request->input('per_page', 20), 100);
         $page = max((int) $request->input('page', 1), 1);
+        $typeFilter = $request->input('type');
+        $sizeFilter = $request->input('size');
 
         $files = collect(Storage::disk('public')->files())
             ->filter(fn (string $path) => $path !== '.gitignore')
@@ -32,6 +34,70 @@ class AdminMediaController extends Controller
                 'last_modified' => Storage::disk('public')->lastModified($path),
                 'url' => Storage::disk('public')->url($path),
             ])
+            ->filter(function (array $file) use ($typeFilter, $sizeFilter) {
+                if ($typeFilter) {
+                    $mime = $file['mime'];
+
+                    $isDocument = fn () => in_array($mime, [
+                        'application/pdf',
+                        'application/msword',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'application/vnd.ms-excel',
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'application/vnd.ms-powerpoint',
+                        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                        'text/plain',
+                        'text/csv',
+                        'text/html',
+                        'text/richtext',
+                    ]);
+
+                    $isArchive = fn () => in_array($mime, [
+                        'application/zip',
+                        'application/x-rar-compressed',
+                        'application/gzip',
+                        'application/x-gzip',
+                        'application/x-tar',
+                        'application/x-7z-compressed',
+                    ]);
+
+                    $match = match ($typeFilter) {
+                        'image' => str_starts_with($mime, 'image/'),
+                        'video' => str_starts_with($mime, 'video/'),
+                        'audio' => str_starts_with($mime, 'audio/'),
+                        'document' => $isDocument(),
+                        'archive' => $isArchive(),
+                        'other' => ! str_starts_with($mime, 'image/')
+                            && ! str_starts_with($mime, 'video/')
+                            && ! str_starts_with($mime, 'audio/')
+                            && ! $isDocument()
+                            && ! $isArchive(),
+                        default => true,
+                    };
+
+                    if (! $match) {
+                        return false;
+                    }
+                }
+
+                if ($sizeFilter) {
+                    $size = $file['size'];
+
+                    $match = match ($sizeFilter) {
+                        'tiny' => $size < 100 * 1024,
+                        'small' => $size < 1024 * 1024,
+                        'medium' => $size < 10 * 1024 * 1024,
+                        'large' => $size >= 10 * 1024 * 1024,
+                        default => true,
+                    };
+
+                    if (! $match) {
+                        return false;
+                    }
+                }
+
+                return true;
+            })
             ->sortByDesc('last_modified')
             ->values();
 

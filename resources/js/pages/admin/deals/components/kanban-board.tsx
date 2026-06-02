@@ -1,4 +1,5 @@
-import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
+import { DragDropContext, Droppable, Draggable  } from '@hello-pangea/dnd';
+import type {DropResult} from '@hello-pangea/dnd';
 import { DealCard } from '@/pages/admin/deals/components/deal-card';
 import type { DealData, Stage } from '@/pages/admin/deals/index';
 
@@ -10,7 +11,10 @@ type Props = {
 
 export function KanbanBoard({ pipeline, onDragEnd, onCardClick }: Props) {
     const handleDragEnd = (result: DropResult) => {
-        if (!result.destination) return;
+        if (!result.destination) {
+return;
+}
+
         const destStageId = Number(result.destination.droppableId);
         onDragEnd(Number(result.draggableId), destStageId);
     };

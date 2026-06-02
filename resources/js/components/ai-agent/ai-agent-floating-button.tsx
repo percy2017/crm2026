@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { BotMessageSquare, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { useState } from 'react'
 import { AiAgentChatPanel } from '@/components/ai-agent/ai-agent-chat-panel'
+import { cn } from '@/lib/utils'
 
 export function AiAgentFloatingButton() {
   const [open, setOpen] = useState(false)

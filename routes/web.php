@@ -2,9 +2,8 @@
 
 use App\Http\Controllers\Admin\AdminAiAgentController;
 use App\Http\Controllers\Admin\AdminContactController;
-use App\Http\Controllers\Admin\AdminEntradaController;
-use App\Http\Controllers\Admin\AdminEvolutionInstanceController;
 use App\Http\Controllers\Admin\AdminDealController;
+use App\Http\Controllers\Admin\AdminEntradaController;
 use App\Http\Controllers\Admin\AdminMediaController;
 use App\Http\Controllers\Admin\AdminPipelineStageController;
 use App\Http\Controllers\Admin\AdminRoleController;
@@ -12,6 +11,7 @@ use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdminWebChatController;
 use App\Http\Controllers\Admin\AdminWebWidgetController;
 use App\Http\Controllers\Admin\AdminWooCommerceController;
+use App\Http\Controllers\Admin\InboxCrudController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use Illuminate\Auth\Middleware\RequirePassword;
@@ -72,13 +72,19 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::delete('/pipeline-stages/{pipelineStage}', [AdminPipelineStageController::class, 'destroy'])->name('pipeline-stages.destroy');
     Route::post('/pipeline-stages/reorder', [AdminPipelineStageController::class, 'reorder'])->name('pipeline-stages.reorder');
 
-    Route::get('/evolution-instances', [AdminEvolutionInstanceController::class, 'index'])->name('evolution-instances.index');
+    Route::prefix('inboxes')->name('inboxes.')->group(function () {
+        Route::get('/', [InboxCrudController::class, 'index'])->name('index');
+        Route::get('/create', [InboxCrudController::class, 'create'])->name('create');
+        Route::post('/', [InboxCrudController::class, 'store'])->name('store');
+        Route::delete('/{inbox}', [InboxCrudController::class, 'destroy'])->name('destroy');
+    });
 
     Route::prefix('entradas')->name('entradas.')->group(function () {
         Route::get('/{instance}', [AdminEntradaController::class, 'chat'])->name('chat');
         Route::get('/{instance}/chats', [AdminEntradaController::class, 'chats'])->name('chats');
         Route::get('/{instance}/messages', [AdminEntradaController::class, 'messages'])->name('messages');
         Route::post('/{instance}/send', [AdminEntradaController::class, 'send'])->name('send');
+        Route::delete('/{instance}/conversations/{conversation}', [AdminEntradaController::class, 'destroyConversation'])->name('conversations.destroy');
     });
 
     Route::get('/media', [AdminMediaController::class, 'index'])->name('media.index');
@@ -119,10 +125,11 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::get('/web-chat/conversations/{webConversation}/messages', [AdminWebChatController::class, 'messages'])->name('web-chat.messages');
     Route::post('/web-chat/conversations/{webConversation}/send', [AdminWebChatController::class, 'send'])->name('web-chat.send');
     Route::post('/web-chat/conversations/{webConversation}/assign', [AdminWebChatController::class, 'assign'])->name('web-chat.assign');
-    Route::post('/web-chat/conversations/{webConversation}/close', [AdminWebChatController::class, 'close'])->name('web-chat.close');
+    Route::delete('/web-chat/conversations/{webConversation}', [AdminWebChatController::class, 'destroy'])->name('web-chat.destroy');
 
     Route::get('/contacts', [AdminContactController::class, 'index'])->name('contacts.index');
     Route::get('/contacts/create', [AdminContactController::class, 'create'])->name('contacts.create');
+    Route::get('/contacts/import', [AdminContactController::class, 'import'])->name('contacts.import');
     Route::get('/contacts/{contact}', [AdminContactController::class, 'show'])->name('contacts.show');
     Route::post('/contacts', [AdminContactController::class, 'store'])->name('contacts.store');
     Route::post('/contacts/fetch-from-evolution', [AdminContactController::class, 'fetchFromEvolution'])->name('contacts.fetch-from-evolution');
@@ -134,4 +141,5 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::post('/contacts/batch-delete', [AdminContactController::class, 'batchDestroy'])->name('contacts.batch-destroy');
     Route::post('/contacts/scan-groups', [AdminContactController::class, 'scanGroups'])->name('contacts.scan-groups');
     Route::post('/contacts/import-group-members', [AdminContactController::class, 'importGroupMembers'])->name('contacts.import-group-members');
+    Route::post('/contacts/import-csv', [AdminContactController::class, 'importCsv'])->name('contacts.import-csv');
 });

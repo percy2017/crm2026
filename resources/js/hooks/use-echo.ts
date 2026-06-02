@@ -18,12 +18,17 @@ return globalEcho
     wssPort: Number(import.meta.env.VITE_REVERB_PORT ?? 6001),
     forceTLS: false,
     enabledTransports: ['ws', 'wss'],
+    channelAuthorization: {
+      endpoint: '/broadcasting/auth',
+      transport: 'ajax',
+    },
   })
 
    
   globalEcho = new Echo({
     broadcaster: 'reverb',
     client: pusherClient,
+    authEndpoint: '/broadcasting/auth',
   } as any) as EchoInstance
 
   return globalEcho

@@ -31,6 +31,7 @@ export type LocalConversation = {
     id: number;
     contact_id: number | null;
     channel_id: string;
+    unread_count: number;
     contact: {
         name: string | null;
         phone: string | null;
@@ -50,6 +51,9 @@ export type LocalMessage = {
     text: string | null;
     media_url: string | null;
     created_at: string;
+    sender_phone: string | null;
+    sender_name: string | null;
+    sender_avatar: string | null;
 };
 
 export type EvolutionChat = {

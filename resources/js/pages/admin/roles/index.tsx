@@ -1,6 +1,6 @@
 import { Head, router } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
 import { Shield, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -154,6 +154,7 @@ export default function RolesIndex({
 
     useEffect(() => {
         const cleanup = fetchRoles();
+
         return cleanup;
     }, [page, pageLength, search, sort, refreshKey]);
 
@@ -178,8 +179,12 @@ export default function RolesIndex({
     };
 
     const handleSave = async () => {
-        if (!editRole) return;
+        if (!editRole) {
+return;
+}
+
         setSaving(true);
+
         try {
             const res = await fetch(adminRolesIndex().url + '/' + editRole.id, {
                 method: 'PUT',
@@ -190,6 +195,7 @@ export default function RolesIndex({
                 },
                 body: JSON.stringify({ name: editName, permissions: editPerms }),
             });
+
             if (res.ok) {
                 setEditRole(null);
                 setRefreshKey((k) => k + 1);
@@ -202,8 +208,12 @@ export default function RolesIndex({
     };
 
     const handleCreate = async () => {
-        if (!createName.trim()) return;
+        if (!createName.trim()) {
+return;
+}
+
         setCreating(true);
+
         try {
             const res = await fetch(adminRolesIndex().url, {
                 method: 'POST',
@@ -214,6 +224,7 @@ export default function RolesIndex({
                 },
                 body: JSON.stringify({ name: createName, permissions: createPerms }),
             });
+
             if (res.ok) {
                 setShowCreate(false);
                 setCreateName('');
@@ -237,6 +248,7 @@ export default function RolesIndex({
                         Accept: 'application/json',
                     },
                 });
+
                 if (res.ok) {
                     setRefreshKey((k) => k + 1);
                 }
@@ -425,6 +437,7 @@ export default function RolesIndex({
                         </Button>
                         {Array.from({ length: totalPages > 5 ? 5 : totalPages }, (_, i) => {
                             let pageNum: number;
+
                             if (totalPages <= 5) {
                                 pageNum = i + 1;
                             } else if (page <= 3) {
@@ -434,6 +447,7 @@ export default function RolesIndex({
                             } else {
                                 pageNum = page - 2 + i;
                             }
+
                             return (
                                 <Button
                                     key={pageNum}
@@ -467,7 +481,11 @@ export default function RolesIndex({
                 </div>
             </div>
 
-            <Sheet open={viewRole !== null} onOpenChange={(o) => { if (!o) setViewRole(null); }}>
+            <Sheet open={viewRole !== null} onOpenChange={(o) => {
+ if (!o) {
+setViewRole(null);
+} 
+}}>
                 <SheetContent className="w-full sm:max-w-md">
                     <SheetHeader>
                         <SheetTitle>Role Details</SheetTitle>
@@ -525,7 +543,11 @@ export default function RolesIndex({
                 </SheetContent>
             </Sheet>
 
-            <Dialog open={editRole !== null} onOpenChange={(o) => { if (!o) setEditRole(null); }}>
+            <Dialog open={editRole !== null} onOpenChange={(o) => {
+ if (!o) {
+setEditRole(null);
+} 
+}}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Edit Role</DialogTitle>
@@ -594,7 +616,11 @@ export default function RolesIndex({
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={showCreate} onOpenChange={(o) => { if (!o) { setShowCreate(false); setCreateName(''); setCreatePerms([]); } }}>
+            <Dialog open={showCreate} onOpenChange={(o) => {
+ if (!o) {
+ setShowCreate(false); setCreateName(''); setCreatePerms([]); 
+} 
+}}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Create Role</DialogTitle>
@@ -647,7 +673,9 @@ export default function RolesIndex({
                     <DialogFooter>
                         <Button
                             variant="outline"
-                            onClick={() => { setShowCreate(false); setCreateName(''); setCreatePerms([]); }}
+                            onClick={() => {
+ setShowCreate(false); setCreateName(''); setCreatePerms([]); 
+}}
                         >
                             Cancel
                         </Button>

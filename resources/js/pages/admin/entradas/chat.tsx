@@ -1,16 +1,27 @@
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
+import EmojiPicker from 'emoji-picker-react';
+import type {EmojiClickData} from 'emoji-picker-react';
 import Echo from 'laravel-echo';
-import { ArrowLeft, Info, MessageSquare, Mic, Paperclip, Send, Search, Phone, X } from 'lucide-react';
+import { MessageSquare, Mic, Paperclip, Send, Search, Phone, Smile, X, ChevronDown } from 'lucide-react';
 import Pusher from 'pusher-js';
 import { useEffect, useRef, useState } from 'react';
+import ChatSidebar from '@/components/entradas/chat-sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import ChatSidebar from '@/components/entradas/chat-sidebar';
-import { upload as mediaUpload } from '@/routes/admin/media';
 import { chats as entradasChats, messages as entradasMessages, send as entradasSend } from '@/routes/admin/entradas';
-import type { EvolutionInstance, LocalConversation, LocalMessage } from '@/types';
+import { upload as mediaUpload } from '@/routes/admin/media';
+import type { LocalConversation, LocalMessage } from '@/types';
+import { renderMessageText } from '@/utils/message';
 
 function formatDatetime(dateStr: string): string {
     const d = new Date(dateStr);
@@ -72,16 +83,24 @@ async function uploadToMedios(file: File): Promise<string> {
 }
 
 function detectMediaType(mimetype: string): string {
-    if (mimetype.startsWith('image/')) return 'image';
-    if (mimetype.startsWith('video/')) return 'video';
-    if (mimetype.startsWith('audio/')) return 'audio';
+    if (mimetype.startsWith('image/')) {
+return 'image';
+}
+
+    if (mimetype.startsWith('video/')) {
+return 'video';
+}
+
+    if (mimetype.startsWith('audio/')) {
+return 'audio';
+}
 
     return 'document';
 }
 
 export default function EntradasChat({ instance }: { instance: string }) {
-    const { evolutionInstances } = usePage().props as unknown as {
-        evolutionInstances: EvolutionInstance[];
+    const { inboxes } = usePage().props as unknown as {
+        inboxes: { id: number; name: string; type: string; webhook_enabled: boolean; config: { ownerJid?: string; profileName?: string; profilePicUrl?: string } | null }[];
     };
     const [conversations, setConversations] = useState<LocalConversation[]>([]);
     const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -96,7 +115,14 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const [recording, setRecording] = useState(false);
     const [pickedFile, setPickedFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
+    const [deleteDialog, setDeleteDialog] = useState<LocalConversation | null>(null);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const [isAtBottom, setIsAtBottom] = useState(true);
+    const [unreadCount, setUnreadCount] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
@@ -106,21 +132,10 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const selectedConvRef = useRef(selectedConv);
     selectedConvRef.current = selectedConv;
 
-    const instInfo = (evolutionInstances ?? []).find(
+const instInfo = (inboxes ?? []).find(
         (i) => i.name === instance,
     );
     const instName = instInfo?.name ?? instance;
-
-    function formatPhone(jid: string | null): string {
-        if (!jid) return '';
-        const num = jid.split('@')[0];
-        if (num.length >= 8) {
-            return `+${num.slice(0, 3)} ${num.slice(3, 6)} ${num.slice(6)}`;
-        }
-        return `+${num}`;
-    }
-
-    const instPhone = formatPhone(instInfo?.ownerJid ?? null) || instInfo?.number || '';
 
     useEffect(() => {
         const url = entradasChats(instance).url;
@@ -153,6 +168,13 @@ export default function EntradasChat({ instance }: { instance: string }) {
             .then((data) => {
                 const list = Array.isArray(data) ? data : [];
                 setMessages(list.reverse());
+                setConversations((prev) =>
+                    prev.map((c) =>
+                        c.channel_id === selectedConv!.channel_id
+                            ? { ...c, unread_count: 0 }
+                            : c,
+                    ),
+                );
             })
             .catch(() => {})
             .finally(() => setLoadingMessages(false));
@@ -167,11 +189,16 @@ export default function EntradasChat({ instance }: { instance: string }) {
                 wssPort: Number(import.meta.env.VITE_REVERB_PORT ?? 6001),
                 forceTLS: false,
                 enabledTransports: ['ws', 'wss'],
+                channelAuthorization: {
+                    endpoint: '/broadcasting/auth',
+                    transport: 'ajax',
+                },
             });
 
             echoRef.current = new Echo({
                 broadcaster: 'reverb',
                 client: pusherClient,
+                authEndpoint: '/broadcasting/auth',
             } as any);
         }
 
@@ -185,15 +212,13 @@ export default function EntradasChat({ instance }: { instance: string }) {
         }) => {
             const msg = data.message;
 
-            if (msg.input_output === false) {
-                const pending = pendingMsgRef.current;
-                if (pending && pending.channel_id === msg.channel_id) {
-                    setMessages((prev) =>
-                        prev.map((m) => (m.id === pending.tempId ? { ...msg, id: msg.id } : m)),
-                    );
-                    pendingMsgRef.current = null;
-                    return;
-                }
+            const pending = pendingMsgRef.current;
+
+            if (pending && pending.channel_id === msg.channel_id && msg.input_output === false) {
+                setMessages((prev) =>
+                    prev.map((m) => (m.id === pending.tempId ? { ...msg, id: msg.id } : m)),
+                );
+                pendingMsgRef.current = null;
             }
 
             if (data.channel_id === selectedConvRef.current?.channel_id) {
@@ -201,12 +226,27 @@ export default function EntradasChat({ instance }: { instance: string }) {
                     if (prev.some((m) => m.id === msg.id)) {
                         return prev;
                     }
+
                     return [...prev, msg];
                 });
             }
 
+            if (msg.input_output === true) {
+                window.dispatchEvent(new CustomEvent('notify:message', {
+                    detail: {
+                        channel_id: data.channel_id,
+                        instance,
+                        contact_name: data.contact.name,
+                        contact_avatar: data.contact.profile_pic_url,
+                        message_preview: msg.media_url ? '📎 Archivo' : (msg.text ?? '—'),
+                        created_at: msg.created_at,
+                    },
+                }));
+            }
+
             setConversations((prev) => {
                 const exists = prev.find((c) => c.channel_id === data.channel_id);
+
                 if (exists) {
                     return prev
                         .map((c) =>
@@ -228,27 +268,23 @@ export default function EntradasChat({ instance }: { instance: string }) {
                         .sort((a, b) => {
                             const aTime = a.last_message?.created_at ?? '';
                             const bTime = b.last_message?.created_at ?? '';
+
                             return bTime.localeCompare(aTime);
                         });
                 }
 
-                return [
-                    {
-                        id: 0,
-                        contact_id: null,
-                        channel_id: data.channel_id,
-                        contact: {
-                            name: data.contact.name ?? null,
-                            phone: data.contact.phone ?? null,
-                            profile_pic_url: data.contact.profile_pic_url ?? null,
-                        },
-                        last_message: {
-                            text: msg.media_url ? '📎 Archivo' : (msg.text ?? '—'),
-                            created_at: msg.created_at,
-                        },
-                    },
-                    ...prev,
-                ];
+                fetch(entradasChats(instance).url, {
+                    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                })
+                    .then((res) => res.json())
+                    .then((data) => {
+                        if (Array.isArray(data)) {
+                            setConversations(data);
+                        }
+                    })
+                    .catch(() => {});
+
+                return prev;
             });
         });
 
@@ -259,12 +295,41 @@ export default function EntradasChat({ instance }: { instance: string }) {
     }, [instance]);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (isAtBottom) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            setUnreadCount((c) => c + 1);
+        }
     }, [messages]);
 
-    const filteredConversations = conversations.filter((c) =>
-        c.contact.name?.toLowerCase().includes(search.toLowerCase()),
-    );
+    const handleScroll = () => {
+        const el = messagesContainerRef.current;
+
+        if (!el) {
+return;
+}
+
+        const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+        setIsAtBottom(atBottom);
+
+        if (atBottom) {
+            setUnreadCount(0);
+        }
+    };
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        setUnreadCount(0);
+        setIsAtBottom(true);
+    };
+
+    const filteredConversations = conversations.filter((c) => {
+        if (!search) {
+return true;
+}
+
+        return c.contact.name?.toLowerCase().includes(search.toLowerCase());
+    });
 
     async function sendMessage(payload: {
         number: string;
@@ -294,6 +359,9 @@ export default function EntradasChat({ instance }: { instance: string }) {
                     ? `/storage/${payload.media_url}`
                     : null,
                 created_at: new Date().toISOString(),
+                sender_phone: null,
+                sender_name: null,
+                sender_avatar: null,
             },
         ]);
 
@@ -353,6 +421,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
 
     function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
+
         if (!file || !selectedConv) {
             return;
         }
@@ -453,7 +522,35 @@ export default function EntradasChat({ instance }: { instance: string }) {
         }
     }
 
-    const phoneNumber = selectedConv?.channel_id.split('@')[0] ?? '';
+    function handleEmojiClick(emoji: EmojiClickData) {
+        setInput((prev) => prev + emoji.emoji);
+        setShowEmojiPicker(false);
+    }
+
+    function handleDrop(e: React.DragEvent) {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer.files[0];
+
+        if (file && selectedConv) {
+            setPickedFile(file);
+        }
+    }
+
+    async function handleDelete(conv: LocalConversation) {
+        await fetch(`/admin/entradas/${instance}/conversations/${conv.id}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRF-TOKEN': getCsrfToken(),
+                Accept: 'application/json',
+            },
+        });
+        setSelectedConv(null);
+        setConversations((prev) => prev.filter((c) => c.channel_id !== conv.channel_id));
+        setDeleteDialog(null);
+    }
+
+    const phoneNumber = selectedConv?.channel_id ?? '';
 
     return (
         <>
@@ -462,16 +559,8 @@ export default function EntradasChat({ instance }: { instance: string }) {
             <div className="flex h-[calc(100dvh-4rem)] overflow-hidden md:h-[calc(100dvh-5rem)]">
                 <div className="flex w-80 shrink-0 flex-col border-r">
                     <div className="flex items-center gap-2 border-b p-3">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 shrink-0"
-                            onClick={() => router.visit('/admin/evolution-instances')}
-                        >
-                            <ArrowLeft className="size-4" />
-                        </Button>
                         <Avatar className="size-8 shrink-0">
-                            <AvatarImage src={instInfo?.profilePicUrl ?? undefined} />
+                            <AvatarImage src={instInfo?.config?.profilePicUrl ?? undefined} />
                             <AvatarFallback className="text-xs">
                                 {instName.charAt(0).toUpperCase()}
                             </AvatarFallback>
@@ -479,7 +568,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
                         <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold">{instName}</p>
                             <p className="truncate text-xs text-muted-foreground">
-                                {instPhone || `${conversations.length} conversaciones`}
+                                {conversations.length} conversaciones
                             </p>
                         </div>
                     </div>
@@ -530,14 +619,22 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center justify-between">
                                             <p className="truncate text-sm font-medium">
-                                                {conv.contact.name || phoneNumber}
+                                                {conv.contact.name || conv.channel_id}
                                             </p>
+                                            {conv.unread_count > 0 && (
+                                                <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+                                                    {conv.unread_count > 9 ? '9+' : conv.unread_count}
+                                                </span>
+                                            )}
                                             {conv.last_message?.created_at && (
                                                 <span className="shrink-0 text-xs text-muted-foreground">
                                                     {formatDatetime(conv.last_message.created_at)}
                                                 </span>
                                             )}
                                         </div>
+                                        <p className="truncate text-xs text-muted-foreground">
+                                            {conv.channel_id}
+                                        </p>
                                         <p className="truncate text-xs text-muted-foreground">
                                             {conv.last_message?.text ?? '—'}
                                         </p>
@@ -548,39 +645,46 @@ export default function EntradasChat({ instance }: { instance: string }) {
                     </div>
                 </div>
 
-                <div className="flex flex-1 flex-col">
-                    {selectedConv ? (
+                <div className="flex flex-1 flex-col relative">
+                        {selectedConv ? (
                         <>
                             <div className="flex items-center gap-3 border-b p-3">
-                                <Avatar className="size-9 shrink-0">
-                                    <AvatarImage src={selectedConv.contact.profile_pic_url ?? undefined} />
-                                    <AvatarFallback className="text-xs">
-                                        {(selectedConv.contact.name ?? '?').charAt(0).toUpperCase()}
-                                    </AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-semibold">
-                                        {selectedConv.contact.name || phoneNumber}
-                                    </p>
-                                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                                        <Phone className="size-3" />
-                                        {phoneNumber}
-                                    </p>
-                                </div>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="size-8 shrink-0"
+                                <button
+                                    type="button"
+                                    className="flex min-w-0 flex-1 items-center gap-3"
                                     onClick={() => {
                                         setSidebarChannelId(selectedConv.channel_id);
                                         setSidebarContactId(selectedConv.contact_id);
                                     }}
                                 >
-                                    <Info className="size-4" />
-                                </Button>
+                                    <Avatar className="size-9 shrink-0">
+                                        <AvatarImage src={selectedConv.contact.profile_pic_url ?? undefined} />
+                                        <AvatarFallback className="text-xs">
+                                            {(selectedConv.contact.name ?? '?').charAt(0).toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div className="min-w-0 flex-1 text-left">
+                                        <p className="truncate text-sm font-semibold">
+                                            {selectedConv.contact.name || selectedConv.channel_id}
+                                        </p>
+                                        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                                            <Phone className="size-3 shrink-0" />
+                                            <span className="truncate">{selectedConv.channel_id}</span>
+                                        </p>
+                                    </div>
+                                </button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto">
+                            <div
+                                ref={messagesContainerRef}
+                                className={`flex-1 overflow-y-auto ${dragOver ? 'ring-2 ring-primary' : ''}`}
+                                onScroll={handleScroll}
+                                onDragOver={(e) => {
+ e.preventDefault(); setDragOver(true); 
+}}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={handleDrop}
+                            >
                                 {loadingMessages ? (
                                     <div className="space-y-3 p-4">
                                         <Skeleton className="ml-12 h-8 w-48" />
@@ -597,40 +701,62 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                     <div className="space-y-1.5 p-4">
                                         {messages.map((msg) => {
                                             const isMe = msg.input_output === false;
+                                            const isGroup = !!msg.sender_phone;
 
                                             return (
                                                 <div
                                                     key={msg.id}
                                                     className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
                                                 >
-                                                    <div
-                                                        className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${
-                                                            isMe
-                                                                ? 'bg-primary text-primary-foreground rounded-br-md'
-                                                                : 'bg-muted rounded-bl-md'
-                                                        }`}
-                                                    >
-                                                        {msg.media_url && msg.message_type === 'audioMessage' ? (
-                                                            <audio src={msg.media_url} controls className="h-10 w-48" />
-                                                        ) : msg.media_url && msg.message_type === 'imageMessage' ? (
-                                                            <img src={msg.media_url} alt="" className="max-w-full rounded-lg" />
-                                                        ) : msg.media_url ? (
-                                                            <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="underline">
-                                                                {msg.text || 'Ver archivo'}
-                                                            </a>
-                                                        ) : null}
-                                                        <p className="whitespace-pre-wrap break-words">
-                                                            {msg.text || '—'}
-                                                        </p>
-                                                        <p
-                                                            className={`mt-0.5 text-right text-[10px] ${
-                                                                isMe
-                                                                    ? 'text-primary-foreground/60'
-                                                                    : 'text-muted-foreground'
-                                                            }`}
-                                                        >
-                                                            {formatDatetime(msg.created_at)}
-                                                        </p>
+                                                    <div className="max-w-[75%]">
+                                                        {isGroup && (
+                                                            <div className="mb-1 flex items-start gap-1.5">
+                                                                <Avatar className="mt-0.5 size-5">
+                                                                    <AvatarImage src={msg.sender_avatar ?? undefined} />
+                                                                    <AvatarFallback className="text-[10px]">
+                                                                        {(msg.sender_name ?? msg.sender_phone ?? '?').charAt(0).toUpperCase()}
+                                                                    </AvatarFallback>
+                                                                </Avatar>
+                                                                <div className="leading-tight">
+                                                                    <p className="text-sm font-medium text-foreground">
+                                                                        {msg.sender_name || msg.sender_phone || 'Desconocido'}
+                                                                    </p>
+                                                                    <p className="text-[10px] text-muted-foreground/60">
+                                                                        {msg.sender_phone ?? ''}@s.whatsapp.net
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <div className="rounded-2xl bg-muted px-4 py-2 text-sm">
+                                                            {msg.media_url && msg.message_type === 'audioMessage' ? (
+                                                                <audio src={msg.media_url} controls className="h-10 w-48" />
+                                                            ) : msg.media_url && (msg.message_type === 'imageMessage' || msg.message_type === 'stickerMessage') ? (
+                                                                <img src={msg.media_url} alt="" className="max-h-36 max-w-56 rounded-lg object-contain cursor-pointer hover:opacity-80" loading="lazy" onClick={() => setLightboxSrc(msg.media_url)} />
+                                                            ) : msg.media_url && msg.message_type === 'videoMessage' ? (
+                                                                <video src={msg.media_url} controls className="max-h-36 max-w-56 rounded-lg" />
+                                                            ) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
+                                                                <div className="flex flex-col gap-1">
+                                                                    <iframe src={msg.media_url} className="w-56 h-32 rounded-lg border" />
+                                                                    {msg.text && (
+                                                                        <p className="whitespace-pre-wrap break-words text-xs">
+                                                                            {renderMessageText(msg.text)}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            ) : msg.media_url ? (
+                                                                <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="underline">
+                                                                    📎 {msg.text || 'Ver archivo'}
+                                                                </a>
+                                                            ) : null}
+                                                            {msg.text && !msg.media_url?.endsWith('.pdf') && (
+                                                                <p className="whitespace-pre-wrap break-words">
+                                                                    {renderMessageText(msg.text)}
+                                                                </p>
+                                                            )}
+                                                            <p className="mt-0.5 text-right text-[10px] text-muted-foreground">
+                                                                {formatDatetime(msg.created_at)}
+                                                            </p>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             );
@@ -639,6 +765,23 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                     </div>
                                 )}
                             </div>
+
+                            {!isAtBottom && (
+                                <button
+                                    type="button"
+                                    onClick={scrollToBottom}
+                                    className="absolute bottom-24 right-6 z-50 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+                                    title="Ir abajo"
+                                >
+                                    {unreadCount > 0 ? (
+                                        <span className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                                            {unreadCount > 9 ? '9+' : unreadCount}
+                                        </span>
+                                    ) : (
+                                        <ChevronDown className="size-5" />
+                                    )}
+                                </button>
+                            )}
 
                             <div className="border-t p-3">
                                 <input
@@ -650,49 +793,109 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                 />
 
                                 {pickedFile ? (
-                                    <div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-2">
-                                        <span className="min-w-0 flex-1 truncate text-sm">
-                                            {pickedFile.name}
-                                        </span>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-7 shrink-0"
-                                            onClick={() => setPickedFile(null)}
+                                    <div className="flex flex-col gap-2 rounded-lg border bg-muted/50 p-2">
+                                        <div className="flex items-center gap-2">
+                                            {pickedFile.type.startsWith('image/') && (
+                                                <img
+                                                    src={URL.createObjectURL(pickedFile)}
+                                                    alt="preview"
+                                                    className="size-10 shrink-0 rounded object-cover"
+                                                    onError={(e) => {
+                                                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                    }}
+                                                />
+                                            )}
+                                            <span className="min-w-0 flex-1 truncate text-sm">
+                                                {pickedFile.name}
+                                            </span>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-7 shrink-0"
+                                                onClick={() => setPickedFile(null)}
+                                                disabled={uploading}
+                                            >
+                                                <X className="size-3.5" />
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                onClick={handleSendFile}
+                                                disabled={uploading}
+                                            >
+                                                {uploading ? 'Subiendo...' : 'Enviar'}
+                                            </Button>
+                                        </div>
+                                        <textarea
+                                            placeholder="Añade un caption..."
+                                            value={input}
+                                            onChange={(e) => setInput(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                    e.preventDefault();
+                                                    handleSendFile();
+                                                }
+                                            }}
+                                            onInput={(e) => {
+                                                const el = e.currentTarget;
+                                                el.style.height = 'auto';
+                                                el.style.height = el.scrollHeight + 'px';
+                                            }}
+                                            className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[32px] max-h-24"
+                                            rows={1}
                                             disabled={uploading}
-                                        >
-                                            <X className="size-3.5" />
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            onClick={handleSendFile}
-                                            disabled={uploading}
-                                        >
-                                            {uploading ? 'Subiendo...' : 'Enviar'}
-                                        </Button>
+                                        />
                                     </div>
                                 ) : (
-                                    <div className="flex items-end gap-2">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-10 shrink-0"
-                                            onClick={() => fileInputRef.current?.click()}
-                                            disabled={sending || uploading || recording}
-                                        >
-                                            <Paperclip className="size-4" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className={`size-10 shrink-0 ${recording ? 'animate-pulse text-red-500' : ''}`}
-                                            onClick={toggleRecording}
-                                            disabled={sending || uploading}
-                                        >
-                                            <Mic className="size-4" />
-                                        </Button>
-                                        <div className="flex-1">
-                                            <Input
+                                    <div className="flex items-end gap-1.5 flex-nowrap">
+                                        <div className="flex items-center gap-0">
+                                            <button
+                                                type="button"
+                                                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                disabled={sending || uploading || recording}
+                                                title="Adjuntar archivo"
+                                            >
+                                                <Paperclip className="size-4" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 ${recording ? 'animate-pulse text-red-500' : ''}`}
+                                                onClick={toggleRecording}
+                                                disabled={sending || uploading}
+                                                title={recording ? 'Detener grabación' : 'Grabar audio'}
+                                            >
+                                                <Mic className="size-4" />
+                                            </button>
+                                            <div className="relative">
+                                                <button
+                                                    type="button"
+                                                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                                                    onClick={() => setShowEmojiPicker((v) => !v)}
+                                                    title="Emojis"
+                                                >
+                                                    <Smile className="size-4" />
+                                                </button>
+                                                {showEmojiPicker && (
+                                                    <div className="absolute bottom-full left-0 mb-1 z-50">
+                                                        <div
+                                                            className="fixed inset-0 z-40"
+                                                            onClick={() => setShowEmojiPicker(false)}
+                                                        />
+                                                        <div className="relative z-50">
+                                                            <EmojiPicker
+                                                                onEmojiClick={handleEmojiClick}
+                                                                skinTonesDisabled
+                                                                searchDisabled={false}
+                                                                width={300}
+                                                                height={350}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <textarea
                                                 placeholder={
                                                     recording
                                                         ? 'Grabando...'
@@ -701,18 +904,39 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                                 value={input}
                                                 onChange={(e) => setInput(e.target.value)}
                                                 onKeyDown={handleKeyDown}
-                                                className="min-h-[40px] resize-none"
+                                                onPaste={(e) => {
+                                                    const items = e.clipboardData?.items;
+                                                    if (!items) return;
+                                                    for (const item of items) {
+                                                        if (item.type.startsWith('image/')) {
+                                                            e.preventDefault();
+                                                            const file = item.getAsFile();
+                                                            if (file && selectedConv) {
+                                                                setPickedFile(file);
+                                                            }
+                                                            return;
+                                                        }
+                                                    }
+                                                }}
+                                                onInput={(e) => {
+                                                    const el = e.currentTarget;
+                                                    el.style.height = 'auto';
+                                                    el.style.height = el.scrollHeight + 'px';
+                                                }}
+                                                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-28"
+                                                rows={1}
                                                 disabled={sending || uploading || recording}
                                             />
                                         </div>
-                                        <Button
-                                            size="icon"
+                                        <button
+                                            type="button"
+                                            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                                             onClick={handleSendText}
                                             disabled={!input.trim() || sending || uploading || recording}
-                                            className="size-10 shrink-0"
+                                            title="Enviar"
                                         >
                                             <Send className="size-4" />
-                                        </Button>
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -732,12 +956,55 @@ export default function EntradasChat({ instance }: { instance: string }) {
             <ChatSidebar
                 channelId={sidebarChannelId}
                 contactId={sidebarContactId}
+                contactPhone={sidebarChannelId}
+                contactName={selectedConv?.contact.name ?? null}
+                contactAvatar={selectedConv?.contact.profile_pic_url ?? null}
                 messages={messages}
                 onClose={() => {
                     setSidebarChannelId(null);
                     setSidebarContactId(null);
                 }}
+                onDelete={selectedConv ? () => {
+ setDeleteDialog(selectedConv); setSidebarChannelId(null); setSidebarContactId(null); 
+} : undefined}
             />
+
+            <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Eliminar conversación</DialogTitle>
+                        <DialogDescription>
+                            ¿Estás seguro de eliminar la conversación con "{deleteDialog?.contact.name || deleteDialog?.channel_id}"?
+                            Se eliminarán todos los mensajes.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteDialog(null)}>Cancelar</Button>
+                        <Button variant="destructive" onClick={() => deleteDialog && handleDelete(deleteDialog)}>
+                            Eliminar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!lightboxSrc} onOpenChange={() => setLightboxSrc(null)}>
+                <DialogContent className="max-w-3xl p-0 bg-transparent border-0">
+                    <button
+                        type="button"
+                        className="absolute right-2 top-2 z-50 rounded-full bg-black/60 p-1.5 text-white hover:bg-black/80"
+                        onClick={() => setLightboxSrc(null)}
+                    >
+                        <X className="size-4" />
+                    </button>
+                    {lightboxSrc && (
+                        <img
+                            src={lightboxSrc}
+                            alt=""
+                            className="max-h-[85vh] w-auto rounded-lg object-contain"
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
         </>
     );
 }

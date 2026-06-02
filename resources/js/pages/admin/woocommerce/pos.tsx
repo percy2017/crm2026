@@ -1,10 +1,11 @@
 import { Head, router } from '@inertiajs/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Printer, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ProductGrid } from '@/components/woocommerce/pos/product-grid';
 import { CartPanel } from '@/components/woocommerce/pos/cart-panel';
-import { VariationSelector, type WooVariation } from '@/components/woocommerce/pos/variation-selector';
+import { ProductGrid } from '@/components/woocommerce/pos/product-grid';
+import { VariationSelector  } from '@/components/woocommerce/pos/variation-selector';
+import type {WooVariation} from '@/components/woocommerce/pos/variation-selector';
 import type { WooPaginatedResponse, WooProduct } from '@/types';
 
 export type CartItem = {
@@ -89,13 +90,20 @@ export default function WooPos({
             per_page: '20',
             page: String(page),
         });
-        if (debouncedSearch) params.set('search', debouncedSearch);
-        if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
+
+        if (debouncedSearch) {
+params.set('search', debouncedSearch);
+}
+
+        if (selectedCategory && selectedCategory !== 'all') {
+params.set('category', selectedCategory);
+}
 
         try {
             const res = await fetch(`/admin/woocommerce/products?${params}`, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             });
+
             if (res.ok) {
                 const json: WooPaginatedResponse<WooProduct> = await res.json();
                 setProducts(json.data);
@@ -116,6 +124,7 @@ export default function WooPos({
         const existing = cart.find(
             (item) => item.product.id === product.id && item.variation === null,
         );
+
         if (existing) {
             setCart((prev) =>
                 prev.map((item) =>
@@ -135,6 +144,7 @@ export default function WooPos({
                 },
             ]);
         }
+
         setOrderSuccess(null);
     };
 
@@ -146,6 +156,7 @@ export default function WooPos({
         const existing = cart.find(
             (item) => item.product.id === product.id && item.variation?.id === variation.id,
         );
+
         if (existing) {
             setCart((prev) =>
                 prev.map((item) =>
@@ -165,14 +176,17 @@ export default function WooPos({
                 },
             ]);
         }
+
         setOrderSuccess(null);
     };
 
     const addToCart = (product: WooProduct) => {
         if (product.type === 'variable') {
             setVariationProduct(product);
+
             return;
         }
+
         handleAddSimpleProduct(product);
     };
 
@@ -200,6 +214,7 @@ export default function WooPos({
 
     const addCoupon = (code: string) => {
         const trimmed = code.trim().toUpperCase();
+
         if (trimmed && !coupons.includes(trimmed)) {
             setCoupons((prev) => [...prev, trimmed]);
         }
@@ -210,7 +225,10 @@ export default function WooPos({
     };
 
     const handleCheckout = async () => {
-        if (cart.length === 0) return;
+        if (cart.length === 0) {
+return;
+}
+
         setPaying(true);
 
         const lineItems = cart.map((item) => ({
@@ -285,7 +303,10 @@ export default function WooPos({
 
     const handlePrint = () => {
         const order = orderSuccess;
-        if (!order) return;
+
+        if (!order) {
+return;
+}
 
         const items = cart.length > 0 ? cart : [];
 
@@ -329,7 +350,10 @@ export default function WooPos({
         const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         const printWindow = window.open(url, '_blank');
-        if (!printWindow) return;
+
+        if (!printWindow) {
+return;
+}
 
         const checkLoaded = setInterval(() => {
             if (printWindow.document.readyState === 'complete') {

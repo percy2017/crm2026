@@ -1,4 +1,6 @@
+import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -11,8 +13,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
-import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 
 type Stage = {
     id: number;
@@ -44,13 +44,17 @@ export function ManageStagesDialog({ open, onClose, onSaved }: Props) {
         })
             .then((r) => (r.ok ? r.json() : null))
             .then((json) => {
-                if (json?.stages) setStages(json.stages);
+                if (json?.stages) {
+setStages(json.stages);
+}
             })
             .finally(() => setLoading(false));
     }, []);
 
     useEffect(() => {
-        if (open) fetchStages();
+        if (open) {
+fetchStages();
+}
     }, [open, fetchStages]);
 
     const resetForm = () => {
@@ -74,7 +78,10 @@ export function ManageStagesDialog({ open, onClose, onSaved }: Props) {
     };
 
     const handleSave = async () => {
-        if (!formName.trim()) return;
+        if (!formName.trim()) {
+return;
+}
+
         const url = editingStage
             ? `/admin/pipeline-stages/${editingStage.id}`
             : '/admin/pipeline-stages';
@@ -107,6 +114,7 @@ export function ManageStagesDialog({ open, onClose, onSaved }: Props) {
                         Accept: 'application/json',
                     },
                 });
+
                 if (res.ok) {
                     fetchStages();
                     onSaved();
@@ -118,7 +126,10 @@ export function ManageStagesDialog({ open, onClose, onSaved }: Props) {
     };
 
     const moveUp = (index: number) => {
-        if (index <= 0) return;
+        if (index <= 0) {
+return;
+}
+
         const next = [...stages];
         [next[index - 1], next[index]] = [next[index], next[index - 1]];
         next.forEach((s, i) => (s.order = i));
@@ -127,7 +138,10 @@ export function ManageStagesDialog({ open, onClose, onSaved }: Props) {
     };
 
     const moveDown = (index: number) => {
-        if (index >= stages.length - 1) return;
+        if (index >= stages.length - 1) {
+return;
+}
+
         const next = [...stages];
         [next[index], next[index + 1]] = [next[index + 1], next[index]];
         next.forEach((s, i) => (s.order = i));
@@ -151,7 +165,11 @@ export function ManageStagesDialog({ open, onClose, onSaved }: Props) {
 
     return (
         <>
-            <Dialog open={open} onOpenChange={(o) => { if (!o) { resetForm(); onClose(); } }}>
+            <Dialog open={open} onOpenChange={(o) => {
+ if (!o) {
+ resetForm(); onClose(); 
+} 
+}}>
                 <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Manage Stages</DialogTitle>

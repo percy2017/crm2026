@@ -1,9 +1,9 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
 import { Calendar, Mail, ShieldCheck, Verified } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Heading from '@/components/heading';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -329,6 +329,7 @@ export default function UsersIndex() {
                         </Button>
                         {Array.from({ length: totalPages > 5 ? 5 : totalPages }, (_, i) => {
                             let pageNum: number;
+
                             if (totalPages <= 5) {
                                 pageNum = i + 1;
                             } else if (page <= 3) {
@@ -338,6 +339,7 @@ export default function UsersIndex() {
                             } else {
                                 pageNum = page - 2 + i;
                             }
+
                             return (
                                 <Button
                                     key={pageNum}
@@ -371,7 +373,11 @@ export default function UsersIndex() {
                 </div>
             </div>
 
-            <Sheet open={viewUser !== null} onOpenChange={(o) => { if (!o) setViewUser(null); }}>
+            <Sheet open={viewUser !== null} onOpenChange={(o) => {
+ if (!o) {
+setViewUser(null);
+} 
+}}>
                 <SheetContent className="w-full sm:max-w-md">
                     <SheetHeader>
                         <SheetTitle>User Details</SheetTitle>

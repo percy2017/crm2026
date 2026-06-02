@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BookUser, Images, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp } from 'lucide-react';
+import { BookUser, Globe, Images, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp, Zap } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -15,13 +15,26 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as adminUsersIndex } from '@/routes/admin/users';
-import type { EvolutionInstance, NavItem } from '@/types';
+import type { NavItem } from '@/types';
+
+type SharedInbox = {
+    id: number;
+    name: string;
+    type: string;
+    webhook_enabled: boolean;
+};
 
 export function AppSidebar() {
-    const { evolutionInstances, webWidgets } = usePage().props as unknown as {
-        evolutionInstances: EvolutionInstance[];
-        webWidgets: { id: number; name: string }[];
+    const { inboxes } = usePage().props as unknown as {
+        inboxes: SharedInbox[];
     };
+
+    const activeInboxes = (inboxes ?? []).filter(
+        (inst) => inst.type === 'evolution',
+    );
+    const webInboxes = (inboxes ?? []).filter(
+        (inst) => inst.type === 'web',
+    );
 
     const platformItems: NavItem[] = [
         {
@@ -42,15 +55,16 @@ export function AppSidebar() {
             href: '#',
             icon: MessageSquare,
             children: [
-                ...(evolutionInstances ?? []).map((inst) => ({
+                ...activeInboxes.map((inst) => ({
                     title: inst.name,
                     href: `/admin/entradas/${inst.name}`,
+                    icon: Zap,
                 })),
-                ...(webWidgets ?? []).map((w) => ({
+                ...webInboxes.map((w) => ({
                     title: w.name,
-                    href: '/admin/web-chat',
+                    href: `/admin/web-chat?inbox_id=${w.id}`,
+                    icon: Globe,
                 })),
-
             ],
         },
         {
@@ -60,6 +74,7 @@ export function AppSidebar() {
             children: [
                 { title: 'All Contacts', href: '/admin/contacts' },
                 { title: 'Create Contact', href: '/admin/contacts/create' },
+                { title: 'Import Contacts', href: '/admin/contacts/import' },
             ],
         },
         {
@@ -91,8 +106,7 @@ export function AppSidebar() {
                 { title: 'Users', href: adminUsersIndex() },
                 { title: 'Roles', href: '/admin/roles', icon: ShieldCheck },
                 { title: 'Reverb Monitor', href: '/reverb-monitor' },
-                { title: 'Evolution API', href: '/admin/evolution-instances' },
-                { title: 'Web Widgets', href: '/admin/web-widgets' },
+                { title: 'Inboxes', href: '/admin/inboxes' },
             ],
         },
     ];

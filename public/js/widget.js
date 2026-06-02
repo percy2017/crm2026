@@ -124,6 +124,74 @@
 }\n\
 #crm-widget-send:hover { opacity: 0.9; }\n\
 #crm-widget-send svg { width: 18px; height: 18px; }\n\
+#crm-widget-form {\n\
+  flex: 1;\n\
+  overflow-y: auto;\n\
+  padding: 20px;\n\
+  display: flex;\n\
+  flex-direction: column;\n\
+  gap: 12px;\n\
+}\n\
+#crm-widget-form h3 {\n\
+  margin: 0 0 4px;\n\
+  font-size: 16px;\n\
+  color: #333;\n\
+}\n\
+#crm-widget-form p {\n\
+  margin: 0 0 12px;\n\
+  font-size: 13px;\n\
+  color: #666;\n\
+}\n\
+#crm-widget-form input,\n\
+#crm-widget-form textarea {\n\
+  width: 100%;\n\
+  padding: 10px 12px;\n\
+  border: 1px solid #ddd;\n\
+  border-radius: 8px;\n\
+  font-size: 14px;\n\
+  font-family: inherit;\n\
+  box-sizing: border-box;\n\
+  outline: none;\n\
+  transition: border-color 0.2s;\n\
+}\n\
+#crm-widget-form input:focus,\n\
+#crm-widget-form textarea:focus {\n\
+  border-color: var(--crm-color, #3b82f6);\n\
+}\n\
+#crm-widget-form textarea {\n\
+  resize: none;\n\
+  min-height: 80px;\n\
+}\n\
+#crm-widget-form label {\n\
+  font-size: 12px;\n\
+  color: #666;\n\
+  margin-bottom: 2px;\n\
+  display: block;\n\
+}\n\
+#crm-widget-form .crm-form-row {\n\
+  display: flex;\n\
+  gap: 10px;\n\
+}\n\
+#crm-widget-form .crm-form-row > div {\n\
+  flex: 1;\n\
+}\n\
+#crm-widget-form-submit {\n\
+  width: 100%;\n\
+  padding: 12px;\n\
+  background: var(--crm-color, #3b82f6);\n\
+  color: #fff;\n\
+  border: none;\n\
+  border-radius: 8px;\n\
+  font-size: 14px;\n\
+  font-weight: 600;\n\
+  cursor: pointer;\n\
+  transition: opacity 0.2s;\n\
+}\n\
+#crm-widget-form-submit:hover { opacity: 0.9; }\n\
+#crm-widget-form-submit:disabled {\n\
+  opacity: 0.6;\n\
+  cursor: not-allowed;\n\
+}\n\
 @media (max-width: 480px) {\n\
   #crm-widget-panel {\n\
     width: 100vw;\n\
@@ -149,6 +217,7 @@
   var visitorId = null;
   var conversationId = null;
   var pollInterval = null;
+  var iti = null;
 
   var chatIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
   var closeIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
@@ -173,9 +242,32 @@
       <span>Chat</span>\
       <button id="crm-widget-close">' + closeIcon + '</button>\
     </div>\
-    <div id="crm-widget-greeting">' + greeting + '</div>\
-    <div id="crm-widget-messages"></div>\
-    <div id="crm-widget-input-area">\
+    <div id="crm-widget-form">\
+      <h3>Bienvenido</h3>\
+      <p>Completá tus datos para iniciar la conversación</p>\
+      <div class="crm-form-row">\
+        <div>\
+          <label>Nombre *</label>\
+          <input type="text" id="crm-form-name" placeholder="Tu nombre" required />\
+        </div>\
+        <div>\
+          <label>Email</label>\
+          <input type="email" id="crm-form-email" placeholder="tu@email.com" />\
+        </div>\
+      </div>\
+      <div>\
+        <label>Teléfono</label>\
+        <input type="tel" id="crm-form-phone" />\
+      </div>\
+      <div>\
+        <label>Mensaje</label>\
+        <textarea id="crm-form-message" placeholder="¿En qué podemos ayudarte?"></textarea>\
+      </div>\
+      <button id="crm-widget-form-submit">Iniciar Chat</button>\
+    </div>\
+    <div id="crm-widget-greeting" style="display:none"></div>\
+    <div id="crm-widget-messages" style="display:none"></div>\
+    <div id="crm-widget-input-area" style="display:none">\
       <input id="crm-widget-input" type="text" placeholder="Escribe un mensaje..." />\
       <button id="crm-widget-send">' + sendIcon + '</button>\
     </div>\
@@ -186,6 +278,31 @@
   var sendBtn = panel.querySelector('#crm-widget-send');
   var closeBtn = panel.querySelector('#crm-widget-close');
   var greetingEl = panel.querySelector('#crm-widget-greeting');
+  var formEl = panel.querySelector('#crm-widget-form');
+  var formSubmitBtn = panel.querySelector('#crm-widget-form-submit');
+  var phoneInput = panel.querySelector('#crm-form-phone');
+  var nameInput = panel.querySelector('#crm-form-name');
+  var emailInput = panel.querySelector('#crm-form-email');
+  var messageInput = panel.querySelector('#crm-form-message');
+
+  function loadIntlTelInput() {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = server + '/js/intl-tel-input/intlTelInput.min.css';
+    document.head.appendChild(link);
+
+    var script = document.createElement('script');
+    script.src = server + '/js/intl-tel-input/intlTelInputWithUtils.min.js';
+    script.onload = function () {
+      iti = window.intlTelInput(phoneInput, {
+        initialCountry: 'bo',
+        separateDialCode: true,
+        showSelectedDialCode: true,
+        utilsScript: server + '/js/intl-tel-input/intlTelInputWithUtils.min.js',
+      });
+    };
+    document.body.appendChild(script);
+  }
 
   function getUuid() {
     var uuid = localStorage.getItem('crm_widget_uuid');
@@ -199,15 +316,31 @@
     return uuid;
   }
 
-  function api(path, opts = {}) {
+  function api(path, opts) {
     return fetch(server + '/api/widget' + path, {
-      method: opts.method || 'GET',
+      method: (opts && opts.method) || 'GET',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
     }).then(function (r) { return r.ok ? r.json() : null; });
   }
 
+  function showFormView() {
+    formEl.style.display = 'flex';
+    greetingEl.style.display = 'none';
+    messagesEl.style.display = 'none';
+    inputEl.parentElement.style.display = 'none';
+  }
+
+  function showChatView() {
+    formEl.style.display = 'none';
+    greetingEl.style.display = 'block';
+    messagesEl.style.display = 'flex';
+    inputEl.parentElement.style.display = 'flex';
+  }
+
   function init() {
+    loadIntlTelInput();
+
     api('/config').then(function (data) {
       if (!data) return;
       widgetId = data.widget_id;
@@ -244,6 +377,51 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function submitForm() {
+    var name = nameInput.value.trim();
+    if (!name) {
+      nameInput.focus();
+      return;
+    }
+
+    formSubmitBtn.disabled = true;
+    formSubmitBtn.textContent = 'Enviando...';
+
+    var phone = iti ? iti.getNumber() : phoneInput.value.trim();
+
+    var payload = {
+      visitor_id: visitorId,
+      widget_id: widgetId,
+      name: name,
+      email: emailInput.value.trim() || null,
+      phone: phone || null,
+      message: messageInput.value.trim() || null,
+    };
+
+    api('/conversations', {
+      method: 'POST',
+      body: payload,
+    }).then(function (data) {
+      if (!data) {
+        formSubmitBtn.disabled = false;
+        formSubmitBtn.textContent = 'Iniciar Chat';
+        return;
+      }
+
+      conversationId = data.conversation.id;
+      showChatView();
+
+      if (payload.message) {
+        addMessage(payload.message, true);
+      }
+
+      startPolling();
+    }).catch(function () {
+      formSubmitBtn.disabled = false;
+      formSubmitBtn.textContent = 'Iniciar Chat';
+    });
+  }
+
   function openChat() {
     panel.classList.add('open');
     btn.innerHTML = closeIcon;
@@ -251,17 +429,17 @@
     messagesEl.innerHTML = '';
 
     if (!visitorId) {
-      greetingEl.style.display = 'block';
+      showFormView();
       return;
     }
 
     api('/conversations?visitor_id=' + visitorId).then(function (data) {
       if (!data || !data.conversation) {
-        greetingEl.style.display = 'block';
+        showFormView();
         return;
       }
-      greetingEl.style.display = 'none';
       conversationId = data.conversation.id;
+      showChatView();
       data.conversation.messages.forEach(function (m) {
         addMessage(m.content, m.is_from_visitor);
       });
@@ -303,25 +481,12 @@
     if (!text) return;
     inputEl.value = '';
 
-    if (!conversationId) {
-      if (!widgetId || !visitorId) return;
-      api('/conversations', {
-        method: 'POST',
-        body: { visitor_id: visitorId, widget_id: widgetId, message: text },
-      }).then(function (data) {
-        if (!data) return;
-        conversationId = data.conversation.id;
-        greetingEl.style.display = 'none';
-        addMessage(text, true);
-        startPolling();
-      });
-    } else {
-      addMessage(text, true);
-      api('/messages', {
-        method: 'POST',
-        body: { conversation_id: conversationId, content: text },
-      });
-    }
+    if (!conversationId) return;
+    addMessage(text, true);
+    api('/messages', {
+      method: 'POST',
+      body: { visitor_id: visitorId, conversation_id: conversationId, content: text },
+    });
   }
 
   btn.addEventListener('click', function () {
@@ -336,6 +501,8 @@
   inputEl.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') sendMessage();
   });
+
+  formSubmitBtn.addEventListener('click', submitForm);
 
   init();
 })();

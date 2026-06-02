@@ -1,6 +1,7 @@
 import { Head, Link, router } from '@inertiajs/react';
+import { useState  } from 'react';
 import type { FormEvent } from 'react';
-import { useState, type ChangeEvent } from 'react';
+import type {ChangeEvent} from 'react';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';

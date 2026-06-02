@@ -19,10 +19,10 @@ class DatabaseSeeder extends Seeder
         $this->call(PipelineSeeder::class);
         // $this->call(EntradasTestSeeder::class);
 
-        // User::create([
-        //     'name' => 'admin',
-        //     'email' => 'admin@admin.com',
-        //     'password' => bcrypt('Admin2026$'),
-        // ])->assignRole('admin');
+        User::create([
+            'name' => 'admin',
+            'email' => 'admin@admin.com',
+            'password' => bcrypt('Admin2026$'),
+        ])->assignRole('admin');
     }
 }

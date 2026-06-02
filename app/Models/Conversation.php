@@ -12,11 +12,18 @@ class Conversation extends Model
         'channel_id',
         'contact_id',
         'instance',
+        'inbox_id',
+        'unread_count',
     ];
 
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
+    }
+
+    public function inbox(): BelongsTo
+    {
+        return $this->belongsTo(Inbox::class);
     }
 
     public function messages(): HasMany

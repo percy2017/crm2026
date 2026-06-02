@@ -1,7 +1,11 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { usePage } from '@inertiajs/react'
+import { BotMessageSquare, SendHorizonal, Bot, Sparkles, Paperclip, Mic, X } from 'lucide-react'
+import {  useEffect, useRef, useState } from 'react'
+import type {FormEvent} from 'react';
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Sheet,
   SheetContent,
@@ -9,9 +13,6 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { BotMessageSquare, SendHorizonal, Bot, Sparkles, Paperclip, Mic, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type Message = {
@@ -46,7 +47,9 @@ async function uploadToMedios(file: File): Promise<string> {
     body: formData,
   })
 
-  if (!res.ok) throw new Error('Upload failed')
+  if (!res.ok) {
+throw new Error('Upload failed')
+}
 
   const data = await res.json()
 
@@ -54,9 +57,17 @@ async function uploadToMedios(file: File): Promise<string> {
 }
 
 function detectMediaType(mimetype: string): string {
-  if (mimetype.startsWith('image/')) return 'image'
-  if (mimetype.startsWith('video/')) return 'video'
-  if (mimetype.startsWith('audio/')) return 'audio'
+  if (mimetype.startsWith('image/')) {
+return 'image'
+}
+
+  if (mimetype.startsWith('video/')) {
+return 'video'
+}
+
+  if (mimetype.startsWith('audio/')) {
+return 'audio'
+}
 
   return 'document'
 }
@@ -85,7 +96,10 @@ export function AiAgentChatPanel({ open, onOpenChange }: Props) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!input.trim() || isLoading) return
+
+    if (!input.trim() || isLoading) {
+return
+}
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -113,7 +127,9 @@ export function AiAgentChatPanel({ open, onOpenChange }: Props) {
         }),
       })
 
-      if (!res.ok) throw new Error('Chat failed')
+      if (!res.ok) {
+throw new Error('Chat failed')
+}
 
       const data: ChatResponse = await res.json()
 
@@ -133,14 +149,19 @@ export function AiAgentChatPanel({ open, onOpenChange }: Props) {
 
   function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file) return
+
+    if (!file) {
+return
+}
 
     setPickedFile(file)
     e.target.value = ''
   }
 
   async function handleSendFile() {
-    if (!pickedFile) return
+    if (!pickedFile) {
+return
+}
 
     setUploading(true)
 
@@ -204,7 +225,9 @@ export function AiAgentChatPanel({ open, onOpenChange }: Props) {
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop())
 
-        if (audioChunksRef.current.length === 0) return
+        if (audioChunksRef.current.length === 0) {
+return
+}
 
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
         const file = new File([blob], `audio_${Date.now()}.webm`, { type: 'audio/webm' })

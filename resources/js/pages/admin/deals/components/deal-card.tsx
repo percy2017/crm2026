@@ -2,7 +2,10 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import type { DealData } from '@/pages/admin/deals/index';
 
 function getInitials(name?: string | null): string {
-    if (!name) return '?';
+    if (!name) {
+return '?';
+}
+
     return name.charAt(0).toUpperCase();
 }
 

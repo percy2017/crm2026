@@ -104,4 +104,12 @@ class AdminWebChatController extends Controller
 
         return response()->json(['message' => 'Conversation closed.']);
     }
+
+    public function destroy(WebConversation $webConversation): JsonResponse
+    {
+        $webConversation->messages()->delete();
+        $webConversation->delete();
+
+        return response()->json(['message' => 'Conversation deleted.']);
+    }
 }

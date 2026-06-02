@@ -1,11 +1,16 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import Heading from '@/components/heading';
+import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import {
     Table,
     TableBody,
@@ -14,7 +19,8 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { batchDestroy as adminContactsBatchDestroy, create as adminContactsCreate, index as adminContactsIndex } from '@/routes/admin/contacts';
+import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
+import { batchDestroy as adminContactsBatchDestroy, index as adminContactsIndex } from '@/routes/admin/contacts';
 import type { Contact } from '@/types';
 
 const ORDERABLE_COLUMNS = ['id', 'name', 'phone', 'email', 'is_active', 'country', 'created_at'] as const;
@@ -96,6 +102,7 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
     const openDetail = useCallback((id: number) => setSelectedContactId(id), []);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const selectAllRef = useRef<HTMLInputElement>(null);
+    const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
     const { confirm, dialogProps } = useConfirmDialog();
 
@@ -121,6 +128,7 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
             setSelectedIds((prev) => {
                 const currentIds = new Set(prev);
                 contacts.forEach((c) => currentIds.add(c.id));
+
                 return Array.from(currentIds);
             });
         }
@@ -165,8 +173,6 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
         return () => controller.abort();
     }, [page, pageLength, search, sort, filters, refreshKey]);
 
-    const totalPages = Math.ceil(filtered / pageLength);
-
     const handleSort = (column: string) => {
         setSort((prev) => ({
             column,
@@ -201,39 +207,75 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
         created_at: 'Created',
     };
 
+    const COLUMNS: { key: string; render: (c: Contact) => React.ReactNode }[] = [
+        {
+            key: 'id',
+            render: (contact) => <>{contact.id}</>,
+        },
+        {
+            key: 'name',
+            render: (contact) => (
+                <div className="flex items-center gap-2">
+                    {contact.profile_pic_url ? (
+                        <img
+                            src={contact.profile_pic_url}
+                            alt={contact.name ?? 'Avatar'}
+                            referrerPolicy="no-referrer"
+                            className="size-8 rounded-full border object-cover"
+                        />
+                    ) : (
+                        <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
+                            {(contact.name ?? '?')[0]}
+                        </div>
+                    )}
+                    {contact.name ?? '—'}
+                </div>
+            ),
+        },
+        {
+            key: 'phone',
+            render: (contact) => <>{contact.phone ?? '—'}</>,
+        },
+        {
+            key: 'email',
+            render: (contact) => <>{contact.email ?? '—'}</>,
+        },
+        {
+            key: 'is_active',
+            render: (contact) => (
+                contact.is_active ? (
+                    <span className="text-green-600">Yes</span>
+                ) : (
+                    <span className="text-muted-foreground">No</span>
+                )
+            ),
+        },
+        {
+            key: 'country',
+            render: (contact) => (
+                contact.country
+                    ? <span className="font-medium uppercase">{contact.country}</span>
+                    : '—'
+            ),
+        },
+        {
+            key: 'created_at',
+            render: (contact) => (
+                <>{contact.created_at ? new Date(contact.created_at).toLocaleDateString() : '—'}</>
+            ),
+        },
+    ];
+
+    const visibleColumns = ORDERABLE_COLUMNS.filter((col) => !hiddenColumns.has(col));
+    const visibleColCount = 1 + visibleColumns.length + 1;
+const totalPages = Math.ceil(filtered / pageLength); // checkbox + visible + type
+
     return (
         <>
             <Head title="Contacts" />
 
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                    <Heading
-                        title="Contacts"
-                        description="Manage your contact list"
-                    />
-                    <Link href={adminContactsCreate().url}>
-                        <Button>Create Contact</Button>
-                    </Link>
-                </div>
-
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Show</span>
-                        <select
-                            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
-                            value={pageLength}
-                            onChange={(e) => {
-                                setPageLength(Number(e.target.value));
-                                setPage(1);
-                            }}
-                        >
-                            <option value="10">10</option>
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                        <span className="text-sm text-muted-foreground">entries</span>
-                    </div>
+                <div className="flex flex-wrap items-center gap-2">
                     <Input
                         placeholder="Search..."
                         value={search}
@@ -241,11 +283,8 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                             setSearch(e.target.value);
                             setPage(1);
                         }}
-                        className="max-w-sm"
+                        className="max-w-xs"
                     />
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
                     <select
                         className="rounded-md border border-input bg-background px-2 py-1 text-sm"
                         value={filters.country}
@@ -307,6 +346,53 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                             Clear
                         </Button>
                     )}
+                    <div className="ml-auto flex items-center gap-2">
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="text-xs">
+                                    Columns
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-36">
+                                {ORDERABLE_COLUMNS.map((col) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={col}
+                                        checked={!hiddenColumns.has(col)}
+                                        onCheckedChange={(checked) => {
+                                            setHiddenColumns((prev) => {
+                                                const next = new Set(prev);
+
+                                                if (checked) {
+next.delete(col);
+} else {
+next.add(col);
+}
+
+                                                return next;
+                                            });
+                                        }}
+                                    >
+                                        {columnLabel[col]}
+                                    </DropdownMenuCheckboxItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        <span className="text-sm text-muted-foreground">Show</span>
+                        <select
+                            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                            value={pageLength}
+                            onChange={(e) => {
+                                setPageLength(Number(e.target.value));
+                                setPage(1);
+                            }}
+                        >
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                        <span className="text-sm text-muted-foreground">entries</span>
+                    </div>
                 </div>
 
                 {selectedIds.length > 0 && (
@@ -342,7 +428,7 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                                         className="size-4"
                                     />
                                 </TableHead>
-                                {ORDERABLE_COLUMNS.map((col) => (
+                                {ORDERABLE_COLUMNS.filter((col) => !hiddenColumns.has(col)).map((col) => (
                                     <TableHead
                                         key={col}
                                         className="cursor-pointer"
@@ -354,19 +440,18 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                                     </TableHead>
                                 ))}
                                 <TableHead>Type</TableHead>
-                                <TableHead>Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={10} className="text-center">
+                                    <TableCell colSpan={8} className="text-center">
                                         Loading...
                                     </TableCell>
                                 </TableRow>
                             ) : contacts.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={10} className="text-center">
+                                    <TableCell colSpan={8} className="text-center">
                                         No contacts found.
                                     </TableCell>
                                 </TableRow>
@@ -385,43 +470,15 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                                                 className="size-4"
                                             />
                                         </TableCell>
-                                        <TableCell>{contact.id}</TableCell>
-                                        <TableCell className="font-medium">
-                                            <div className="flex items-center gap-2">
-                                                {contact.profile_pic_url ? (
-                                                    <img
-                                                        src={contact.profile_pic_url}
-                                                        alt={contact.name ?? 'Avatar'}
-                                                        referrerPolicy="no-referrer"
-                                                        className="size-8 rounded-full border object-cover"
-                                                    />
-                                                ) : (
-                                                    <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
-                                                        {(contact.name ?? '?')[0]}
-                                                    </div>
-                                                )}
-                                                {contact.name ?? '—'}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>{contact.phone ?? '—'}</TableCell>
-                                        <TableCell>{contact.email ?? '—'}</TableCell>
-                                        <TableCell>
-                                            {contact.is_active ? (
-                                                <span className="text-green-600">Yes</span>
-                                            ) : (
-                                                <span className="text-muted-foreground">No</span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            {contact.country
-                                                ? <span className="font-medium uppercase">{contact.country}</span>
-                                                : '—'}
-                                        </TableCell>
-                                        <TableCell>
-                                            {contact.created_at
-                                                ? new Date(contact.created_at).toLocaleDateString()
-                                                : '—'}
-                                        </TableCell>
+                                        {visibleColumns.map((col) => {
+                                            const colDef = COLUMNS.find((c) => c.key === col);
+
+                                            return (
+                                                <TableCell key={col}>
+                                                    {colDef ? colDef.render(contact) : null}
+                                                </TableCell>
+                                            );
+                                        })}
                                         <TableCell>
                                             <div className="flex flex-col gap-1">
                                                 {contact.type === 'group' ? (
@@ -439,20 +496,6 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                                                         Business
                                                     </span>
                                                 )}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <Link href={`/admin/contacts/${contact.id}/edit`}>
-                                                    <Button variant="outline" size="sm">Edit</Button>
-                                                </Link>
-                                                <Button
-                                                    variant="destructive"
-                                                    size="sm"
-                                                    onClick={() => handleDelete(contact.id, contact.name)}
-                                                >
-                                                    Delete
-                                                </Button>
                                             </div>
                                         </TableCell>
                                     </TableRow>
@@ -489,6 +532,7 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                         </Button>
                         {Array.from({ length: totalPages > 5 ? 5 : totalPages }, (_, i) => {
                             let pageNum: number;
+
                             if (totalPages <= 5) {
                                 pageNum = i + 1;
                             } else if (page <= 3) {
@@ -498,6 +542,7 @@ export default function ContactsIndex({ countries }: { countries: string[] }) {
                             } else {
                                 pageNum = page - 2 + i;
                             }
+
                             return (
                                 <Button
                                     key={pageNum}

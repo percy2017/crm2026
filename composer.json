@@ -20,6 +20,7 @@
         "laravel/reverb": "^1.10",
         "laravel/tinker": "^3.0",
         "laravel/wayfinder": "^0.1.14",
+        "predis/predis": "^3.4",
         "spatie/laravel-permission": "^8.0",
         "yajra/laravel-datatables": "^13.0"
     },
