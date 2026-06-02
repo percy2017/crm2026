@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BookUser, Globe, Images, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp, Zap } from 'lucide-react';
+import { BookUser, Globe, Images, Inbox as InboxIcon, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp, Zap } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -78,6 +78,15 @@ export function AppSidebar() {
             ],
         },
         {
+            title: 'Inboxes',
+            href: '#',
+            icon: InboxIcon,
+            children: [
+                { title: 'All Inboxes', href: '/admin/inboxes' },
+                { title: 'Create Inbox', href: '/admin/inboxes/create' },
+            ],
+        },
+        {
             title: 'Medios',
             href: '/admin/media',
             icon: Images,
@@ -106,7 +115,6 @@ export function AppSidebar() {
                 { title: 'Users', href: adminUsersIndex() },
                 { title: 'Roles', href: '/admin/roles', icon: ShieldCheck },
                 { title: 'Reverb Monitor', href: '/reverb-monitor' },
-                { title: 'Inboxes', href: '/admin/inboxes' },
             ],
         },
     ];

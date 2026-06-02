@@ -1,5 +1,6 @@
 import { Link } from '@inertiajs/react';
 import { ChevronRight } from 'lucide-react';
+import { useState } from 'react';
 import {
     Collapsible,
     CollapsibleContent,
@@ -20,6 +21,8 @@ import type { NavItem } from '@/types';
 
 export function NavMain({ items = [], label = 'Platform' }: { items: NavItem[]; label?: string }) {
     const { isCurrentUrl } = useCurrentUrl();
+    const defaultKey = items.find((item) => item.children?.some((c) => isCurrentUrl(c.href)))?.title ?? null;
+    const [openKey, setOpenKey] = useState<string | null>(defaultKey);
 
     return (
         <SidebarGroup className="px-2 py-0">
@@ -30,7 +33,8 @@ export function NavMain({ items = [], label = 'Platform' }: { items: NavItem[]; 
                         <Collapsible
                             key={item.title}
                             asChild
-                            defaultOpen={item.children.some((c) => isCurrentUrl(c.href))}
+                            open={openKey === item.title}
+                            onOpenChange={(open) => setOpenKey(open ? item.title : null)}
                             className="group/collapsible"
                         >
                             <SidebarMenuItem>

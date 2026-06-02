@@ -74,6 +74,8 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
         Route::get('/', [InboxCrudController::class, 'index'])->name('index');
         Route::get('/create', [InboxCrudController::class, 'create'])->name('create');
         Route::post('/', [InboxCrudController::class, 'store'])->name('store');
+        Route::get('/{inbox}/edit', [InboxCrudController::class, 'edit'])->name('edit');
+        Route::put('/{inbox}', [InboxCrudController::class, 'update'])->name('update');
         Route::delete('/{inbox}', [InboxCrudController::class, 'destroy'])->name('destroy');
     });
 

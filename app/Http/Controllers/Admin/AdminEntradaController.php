@@ -6,6 +6,7 @@ use App\Events\MessageCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\Inbox;
 use App\Models\Message;
 use App\Services\EvolutionApiService;
 use Illuminate\Http\JsonResponse;
@@ -109,6 +110,58 @@ class AdminEntradaController extends Controller
             $number = $request->input('number');
             $channelId = $request->input('channel_id')
                 ?? $number.'@s.whatsapp.net';
+
+            $inbox = Inbox::where('name', $instance)->first();
+
+            if ($inbox && $inbox->type === 'web') {
+                $message = Message::create([
+                    'channel_id' => $channelId,
+                    'instance' => $instance,
+                    'input_output' => false,
+                    'text' => $request->input('text'),
+                    'media_url' => $request->input('media_url'),
+                ]);
+
+                $contact = Contact::where('uuid', $number)->orWhere('phone', $number)->first();
+
+                broadcast(new MessageCreated(
+                    $instance,
+                    $channelId,
+                    [
+                        'id' => $message->id,
+                        'channel_id' => $message->channel_id,
+                        'input_output' => $message->input_output,
+                        'message_type' => $message->message_type,
+                        'text' => $message->text,
+                        'media_url' => $message->media_url
+                            ? asset('storage/'.$message->media_url)
+                            : null,
+                        'created_at' => $message->created_at,
+                        'sender_phone' => null,
+                        'sender_name' => null,
+                        'sender_avatar' => null,
+                    ],
+                    [
+                        'name' => $contact?->name,
+                        'phone' => $contact?->phone ?? $number,
+                        'profile_pic_url' => null,
+                    ],
+                ));
+
+                return response()->json([
+                    'message' => [
+                        'id' => $message->id,
+                        'channel_id' => $message->channel_id,
+                        'input_output' => $message->input_output,
+                        'message_type' => $message->message_type,
+                        'text' => $message->text,
+                        'media_url' => $message->media_url
+                            ? asset('storage/'.$message->media_url)
+                            : null,
+                        'created_at' => $message->created_at,
+                    ],
+                ]);
+            }
 
             $mediaUrl = $request->input('media_url');
 

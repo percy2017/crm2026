@@ -44,21 +44,39 @@ class WidgetController extends Controller
     public function visitor(Request $request): JsonResponse
     {
         $uuid = $request->input('uuid') ?? (string) Str::uuid();
+        $phone = $request->input('phone');
 
-        $visitor = Contact::updateOrCreate(
-            ['uuid' => $uuid],
-            [
+        if ($phone) {
+            $visitor = Contact::where('phone', $phone)->where('type', 'web_visitor')->first();
+        } else {
+            $visitor = Contact::where('uuid', $uuid)->first();
+        }
+
+        if ($visitor) {
+            $visitor->update([
+                'name' => $request->input('name', $visitor->name),
+                'email' => $request->input('email', $visitor->email),
+                'phone' => $phone ?: $visitor->phone,
+                'uuid' => $uuid,
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'current_page' => $request->input('current_page'),
+                'last_seen_at' => now(),
+            ]);
+        } else {
+            $visitor = Contact::create([
                 'name' => $request->input('name'),
                 'email' => $request->input('email'),
-                'phone' => $request->input('phone'),
+                'phone' => $phone,
+                'uuid' => $uuid,
                 'type' => 'web_visitor',
                 'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'current_page' => $request->input('current_page'),
                 'last_seen_at' => now(),
-                'first_seen_at' => Contact::where('uuid', $uuid)->exists() ? null : now(),
-            ]
-        );
+                'first_seen_at' => now(),
+            ]);
+        }
 
         return response()->json([
             'visitor' => [
@@ -70,9 +88,17 @@ class WidgetController extends Controller
 
     public function conversations(Request $request): JsonResponse
     {
-        $request->validate(['visitor_id' => 'required|exists:contacts,id']);
+        $contactId = $request->input('visitor_id');
+        $phone = $request->input('phone');
 
-        $conversation = Conversation::where('contact_id', $request->visitor_id)
+        if ($phone) {
+            $contactByPhone = Contact::where('phone', $phone)->where('type', 'web_visitor')->first();
+            if ($contactByPhone && (string) $contactByPhone->id !== (string) $contactId) {
+                $contactId = $contactByPhone->id;
+            }
+        }
+
+        $conversation = Conversation::where('contact_id', $contactId)
             ->whereIn('status', ['pending', 'active'])
             ->with('messages')
             ->latest()
@@ -90,6 +116,11 @@ class WidgetController extends Controller
                     'id' => $m->id,
                     'content' => $m->text,
                     'is_from_visitor' => $m->input_output,
+                    'media_url' => $m->media_url
+                        ? (str_starts_with($m->media_url, 'http')
+                            ? $m->media_url
+                            : '/storage/'.$m->media_url)
+                        : null,
                     'created_at' => $m->created_at,
                 ]),
             ],
@@ -107,23 +138,51 @@ class WidgetController extends Controller
             'message' => 'nullable|string|max:5000',
         ]);
 
+        $inbox = Inbox::find($data['widget_id']);
+
         $visitor = Contact::find($data['visitor_id']);
+        $phone = $data['phone'] ?? $visitor->phone;
+
+        if ($phone) {
+            $existing = Contact::where('phone', $phone)->where('type', 'web_visitor')->first();
+            if ($existing && (string) $existing->id !== (string) $visitor->id) {
+                $uuid = $visitor->uuid;
+                $visitor = $existing;
+                $visitor->update([
+                    'uuid' => $uuid,
+                    'name' => $data['name'] ?? $visitor->name,
+                    'email' => $data['email'] ?? $visitor->email,
+                    'last_seen_at' => now(),
+                ]);
+            }
+        }
+
         $visitor->update(array_filter([
             'name' => $data['name'] ?? null,
             'email' => $data['email'] ?? null,
-            'phone' => $data['phone'] ?? null,
+            'phone' => $phone,
         ], fn ($v) => $v !== null));
 
-        $inbox = Inbox::find($data['widget_id']);
-        $channelId = (string) Str::uuid();
+        $active = Conversation::where('contact_id', $visitor->id)
+            ->where('inbox_id', $data['widget_id'])
+            ->whereIn('status', ['pending', 'active'])
+            ->latest()
+            ->first();
 
-        $conversation = Conversation::create([
-            'inbox_id' => $data['widget_id'],
-            'channel_id' => $channelId,
-            'contact_id' => $data['visitor_id'],
-            'instance' => $inbox->name,
-            'status' => 'pending',
-        ]);
+        if ($active) {
+            $conversation = $active;
+            $channelId = $conversation->channel_id;
+        } else {
+            $channelId = (string) Str::uuid();
+
+            $conversation = Conversation::create([
+                'inbox_id' => $data['widget_id'],
+                'channel_id' => $channelId,
+                'contact_id' => $visitor->id,
+                'instance' => $inbox->name,
+                'status' => 'pending',
+            ]);
+        }
 
         if (! empty($data['message'])) {
             $message = Message::create([
@@ -132,6 +191,8 @@ class WidgetController extends Controller
                 'input_output' => true,
                 'text' => $data['message'],
             ]);
+
+            $conversation->increment('unread_count');
 
             broadcast(new MessageCreated(
                 $inbox->name,

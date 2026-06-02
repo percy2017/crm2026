@@ -40,11 +40,17 @@ export default function CreateInbox({ instances }: { instances: EvolutionInstanc
     const [type, setType] = useState('evolution');
     const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
     const [customName, setCustomName] = useState('');
+    const [domain, setDomain] = useState('');
+    const [color, setColor] = useState('#3b82f6');
+    const [position, setPosition] = useState<'left' | 'right'>('right');
     const [creating, setCreating] = useState(false);
     const [created, setCreated] = useState<{
         name: string;
-        webhook_url: string;
+        type: string;
+        webhook_url: string | null;
         webhook_enabled: boolean;
+        color?: string;
+        position?: string;
     } | null>(null);
     const [copied, setCopied] = useState(false);
 
@@ -91,7 +97,7 @@ return;
                     Accept: 'application/json',
                     'X-CSRF-TOKEN': getCsrfToken(),
                 },
-                body: JSON.stringify({ name, type }),
+                body: JSON.stringify({ name, type, domain, color, position }),
             });
 
             if (!res.ok) {
@@ -103,10 +109,13 @@ return;
 
             const data = await res.json();
             setCreated({
-                name: data.inbox.name,
-                webhook_url: data.inbox.webhook_url,
-                webhook_enabled: data.inbox.webhook_enabled,
-            });
+                    name: data.inbox.name,
+                    type: data.inbox.type,
+                    webhook_url: data.inbox.webhook_url,
+                    webhook_enabled: data.inbox.webhook_enabled,
+                    color: data.inbox.config?.color,
+                    position: data.inbox.config?.position,
+                });
         } catch {
             toast.error('Error creating inbox');
         } finally {
@@ -138,29 +147,78 @@ return;
                     <Heading>Inbox "{created.name}" Created</Heading>
 
                     <div className="w-full max-w-md space-y-4 rounded-lg border p-6">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Webhook URL</span>
-                            <Badge variant={created.webhook_enabled ? 'default' : 'secondary'}>
-                                {created.webhook_enabled ? 'Enabled' : 'Not configured'}
-                            </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 rounded-md bg-muted p-3">
-                            <code className="flex-1 break-all text-sm">{created.webhook_url}</code>
-                            <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={copyWebhook}>
-                                <Copy className="size-4" />
-                            </Button>
-                        </div>
-                        {copied && <p className="text-xs text-green-600">Copied to clipboard!</p>}
-                        <p className="text-xs text-muted-foreground">
-                            Evolution API will send incoming messages to this URL.
-                        </p>
+                        {created.type === 'evolution' && (
+                            <>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-medium">Webhook URL</span>
+                                    <Badge variant={created.webhook_enabled ? 'default' : 'secondary'}>
+                                        {created.webhook_enabled ? 'Enabled' : 'Not configured'}
+                                    </Badge>
+                                </div>
+                                <div className="flex items-center gap-2 rounded-md bg-muted p-3">
+                                    <code className="flex-1 break-all text-sm">{created.webhook_url}</code>
+                                    <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={copyWebhook}>
+                                        <Copy className="size-4" />
+                                    </Button>
+                                </div>
+                                {copied && <p className="text-xs text-green-600">Copied to clipboard!</p>}
+                                <p className="text-xs text-muted-foreground">
+                                    Evolution API will send incoming messages to this URL.
+                                </p>
+                            </>
+                        )}
+                        {created.type === 'web' && (
+                            <div className="space-y-3">
+                                <p className="text-xs text-muted-foreground">
+                                    Embed the widget on your site:
+                                </p>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={async () => {
+                                        const html = `<script>
+window.CrmWidgetOptions = {
+  server: '${window.location.origin}',
+  color: '${created.color}',
+  position: '${created.position}',
+};
+</script>
+<script src="${window.location.origin}/js/widget.js"></script>`;
+                                        await navigator.clipboard.writeText(html.trim());
+                                        setCopied(true);
+                                        setTimeout(() => setCopied(false), 2000);
+                                    }}>
+                                        <Copy className="mr-1 size-3" />
+                                        {copied ? 'Copied!' : 'Copy HTML'}
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={async () => {
+                                        const wp = `add_action('wp_footer', function() {
+?>
+<script>
+window.CrmWidgetOptions = {
+  server: '${window.location.origin}',
+  color: '${created.color}',
+  position: '${created.position}',
+};
+</script>
+<script src="${window.location.origin}/js/widget.js"></script>
+<?php
+});`;
+                                        await navigator.clipboard.writeText(wp.trim());
+                                        setCopied(true);
+                                        setTimeout(() => setCopied(false), 2000);
+                                    }}>
+                                        <Copy className="mr-1 size-3" />
+                                        {copied ? 'Copied!' : 'Copy WordPress'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex gap-3">
                         <Button variant="outline" onClick={() => router.visit('/admin/inboxes')}>
                             Go to Inboxes
                         </Button>
-                        <Button onClick={() => router.visit(`/admin/entradas/${created.name}`)}>
+                        <Button onClick={() => router.visit(`/admin/entradas/${encodeURIComponent(created.name)}`)}>
                             Open Chat
                         </Button>
                     </div>
@@ -276,16 +334,73 @@ return;
                     )}
 
                     {type === 'web' && (
-                        <div className="mt-6 space-y-2">
-                            <label className="text-sm font-medium">Inbox Name</label>
-                            <Input
-                                placeholder="e.g. mi-sitio-web"
-                                value={customName}
-                                onChange={(e) => setCustomName(e.target.value)}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                Enter the name for the web inbox.
-                            </p>
+                        <div className="mt-6 space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Inbox Name</label>
+                                <Input
+                                    placeholder="e.g. mi-sitio-web"
+                                    value={customName}
+                                    onChange={(e) => setCustomName(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Website URL</label>
+                                <Input
+                                    placeholder="e.g. tusitio.com"
+                                    value={domain}
+                                    onChange={(e) => setDomain(e.target.value)}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Domain where the widget will be embedded.
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Widget Color</label>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="color"
+                                        value={color}
+                                        onChange={(e) => setColor(e.target.value)}
+                                        className="h-10 w-16 cursor-pointer rounded border border-input bg-transparent p-1"
+                                    />
+                                    <Input
+                                        className="w-28"
+                                        value={color}
+                                        onChange={(e) => setColor(e.target.value)}
+                                        placeholder="#3b82f6"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Button Position</label>
+                                <div className="flex gap-3">
+                                    <button
+                                        type="button"
+                                        className={`flex flex-1 items-center justify-center gap-2 rounded-lg border p-3 text-sm transition-colors ${
+                                            position === 'left'
+                                                ? 'border-primary bg-primary/5 font-medium'
+                                                : 'border-input hover:bg-accent'
+                                        }`}
+                                        onClick={() => setPosition('left')}
+                                    >
+                                        Left
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`flex flex-1 items-center justify-center gap-2 rounded-lg border p-3 text-sm transition-colors ${
+                                            position === 'right'
+                                                ? 'border-primary bg-primary/5 font-medium'
+                                                : 'border-input hover:bg-accent'
+                                        }`}
+                                        onClick={() => setPosition('right')}
+                                    >
+                                        Right
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     )}
 

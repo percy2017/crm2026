@@ -195,11 +195,28 @@
 @media (max-width: 480px) {\n\
   #crm-widget-panel {\n\
     width: 100vw;\n\
-    height: 100vh;\n\
+    height: 100dvh;\n\
     bottom: 0;\n\
     right: 0 !important;\n\
     left: 0 !important;\n\
     border-radius: 0;\n\
+    max-height: 100dvh;\n\
+  }\n\
+  #crm-widget-form {\n\
+    max-height: calc(100dvh - 120px);\n\
+    overflow-y: auto;\n\
+  }\n\
+  .crm-form-row {\n\
+    flex-direction: column;\n\
+  }\n\
+  #crm-widget-messages {\n\
+    max-height: calc(100dvh - 140px);\n\
+  }\n\
+  .iti {\n\
+    width: 100%;\n\
+  }\n\
+  .iti__flag-container {\n\
+    z-index: 10;\n\
   }\n\
 }\n';
 
@@ -211,7 +228,7 @@
 
   var position = opts.position || 'right';
   var color = opts.color || '#3b82f6';
-  var greeting = opts.greeting || 'Hola, ¿en qué podemos ayudarte?';
+  var greeting = opts.greeting || '';
   var server = opts.server || window.location.origin;
   var widgetId = null;
   var visitorId = null;
@@ -256,8 +273,8 @@
         </div>\
       </div>\
       <div>\
-        <label>Teléfono</label>\
-        <input type="tel" id="crm-form-phone" />\
+        <label>Teléfono *</label>\
+        <input type="tel" id="crm-form-phone" required />\
       </div>\
       <div>\
         <label>Mensaje</label>\
@@ -365,10 +382,23 @@
     });
   }
 
-  function addMessage(content, isVisitor) {
+  function addMessage(content, isVisitor, mediaUrl) {
     var msgDiv = document.createElement('div');
     msgDiv.className = 'crm-msg ' + (isVisitor ? 'crm-msg-visitor' : 'crm-msg-agent');
-    msgDiv.textContent = content;
+    if (mediaUrl) {
+      var img = document.createElement('img');
+      img.src = mediaUrl;
+      img.style.maxWidth = '100%';
+      img.style.borderRadius = '8px';
+      img.style.display = 'block';
+      img.style.marginBottom = '4px';
+      msgDiv.appendChild(img);
+    }
+    if (content) {
+      var textSpan = document.createElement('span');
+      textSpan.textContent = content;
+      msgDiv.appendChild(textSpan);
+    }
     var timeDiv = document.createElement('div');
     timeDiv.className = 'crm-msg-time';
     timeDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -384,10 +414,17 @@
       return;
     }
 
+    var phone = iti ? iti.getNumber() : phoneInput.value.trim();
+
+    if (!phone) {
+      phoneInput.focus();
+      formSubmitBtn.disabled = false;
+      formSubmitBtn.textContent = 'Iniciar Chat';
+      return;
+    }
+
     formSubmitBtn.disabled = true;
     formSubmitBtn.textContent = 'Enviando...';
-
-    var phone = iti ? iti.getNumber() : phoneInput.value.trim();
 
     var payload = {
       visitor_id: visitorId,
@@ -412,7 +449,7 @@
       showChatView();
 
       if (payload.message) {
-        addMessage(payload.message, true);
+        addMessage(payload.message, true, null);
       }
 
       startPolling();
@@ -441,7 +478,7 @@
       conversationId = data.conversation.id;
       showChatView();
       data.conversation.messages.forEach(function (m) {
-        addMessage(m.content, m.is_from_visitor);
+        addMessage(m.content, m.is_from_visitor, m.media_url);
       });
       startPolling();
     });
@@ -465,7 +502,7 @@
         if (serverCount > existing) {
           messagesEl.innerHTML = '';
           data.conversation.messages.forEach(function (m) {
-            addMessage(m.content, m.is_from_visitor);
+            addMessage(m.content, m.is_from_visitor, m.media_url);
           });
         }
       });
@@ -482,7 +519,7 @@
     inputEl.value = '';
 
     if (!conversationId) return;
-    addMessage(text, true);
+    addMessage(text, true, null);
     api('/messages', {
       method: 'POST',
       body: { visitor_id: visitorId, conversation_id: conversationId, content: text },

@@ -47,6 +47,9 @@ class InboxCrudController extends Controller
         $data = $request->validate([
             'name' => 'required|string|max:100|unique:inboxes,name',
             'type' => 'required|string|in:evolution,web',
+            'domain' => 'nullable|string|max:255',
+            'color' => 'nullable|string|max:7',
+            'position' => 'nullable|in:left,right',
         ]);
 
         if ($data['type'] === 'evolution' && Inbox::where('type', 'evolution')->where('name', $data['name'])->exists()) {
@@ -54,19 +57,22 @@ class InboxCrudController extends Controller
         }
 
         if ($data['type'] === 'web') {
+            $rawDomain = $request->input('domain', '');
+            $domain = str_starts_with($rawDomain, 'http') ? parse_url($rawDomain, PHP_URL_HOST) : ($rawDomain ?: $data['name'].'.localhost');
+
             $inbox = Inbox::create([
                 'name' => $data['name'],
                 'type' => 'web',
                 'status' => 'active',
                 'config' => [
-                    'domain' => $data['name'].'.localhost',
-                    'color' => '#3b82f6',
-                    'position' => 'right',
+                    'domain' => $domain,
+                    'color' => $request->input('color', '#3b82f6'),
+                    'position' => $request->input('position', 'right'),
                     'greeting' => 'Hola, ¿en qué podemos ayudarte?',
                 ],
             ]);
 
-            return response()->json(['inbox' => $inbox], 201);
+            return response()->json(['inbox' => $inbox->fresh()], 201);
         }
 
         $inbox = Inbox::create([
@@ -117,6 +123,49 @@ class InboxCrudController extends Controller
         }
 
         return response()->json(['inbox' => $inbox->fresh()], 201);
+    }
+
+    public function edit(Inbox $inbox): Response
+    {
+        return Inertia::render('admin/inboxes/edit', [
+            'inbox' => $inbox,
+        ]);
+    }
+
+    public function update(Request $request, Inbox $inbox): JsonResponse
+    {
+        if ($inbox->type === 'web') {
+            $data = $request->validate([
+                'domain' => 'nullable|string|max:255',
+                'color' => 'nullable|string|max:7',
+                'position' => 'nullable|in:left,right',
+                'greeting' => 'nullable|string|max:255',
+            ]);
+
+            $config = $inbox->config ?? [];
+            $config['domain'] = $data['domain'] ?? $config['domain'] ?? $inbox->name.'.localhost';
+            $config['color'] = $data['color'] ?? $config['color'] ?? '#3b82f6';
+            $config['position'] = $data['position'] ?? $config['position'] ?? 'right';
+            $config['greeting'] = $data['greeting'] ?? $config['greeting'] ?? 'Hola, ¿en qué podemos ayudarte?';
+
+            $inbox->update(['config' => $config]);
+        }
+
+        if ($inbox->type === 'evolution') {
+            $data = $request->validate([
+                'status' => 'nullable|in:active,inactive',
+                'webhook_url' => 'nullable|string',
+                'webhook_enabled' => 'nullable|boolean',
+            ]);
+
+            $inbox->update(array_filter([
+                'status' => $data['status'] ?? $inbox->status,
+                'webhook_url' => $data['webhook_url'] ?? $inbox->webhook_url,
+                'webhook_enabled' => $data['webhook_enabled'] ?? $inbox->webhook_enabled,
+            ], fn ($v) => $v !== null));
+        }
+
+        return response()->json(['inbox' => $inbox->fresh()]);
     }
 
     public function destroy(Inbox $inbox): JsonResponse

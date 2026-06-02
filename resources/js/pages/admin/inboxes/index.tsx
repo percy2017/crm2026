@@ -1,5 +1,5 @@
 import { Head } from '@inertiajs/react';
-import { Globe, Inbox, Phone, Plus, Trash2, User } from 'lucide-react';
+import { Copy, Edit, Code, Globe, Inbox, Phone, Plus, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import Heading from '@/components/heading';
@@ -44,9 +44,31 @@ function getCsrfToken(): string {
 export default function InboxesIndex({ inboxes: initial }: { inboxes: InboxData[] }) {
 const [inboxes, setInboxes] = useState<InboxData[]>(initial);
     const [deleteId, setDeleteId] = useState<number | null>(null);
+    const [copiedId, setCopiedId] = useState<number | null>(null);
 
     function getCsrfToken(): string {
         return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
+    }
+
+    async function copyEmbed(inbox: InboxData) {
+        const color = inbox.config?.color ?? '#3b82f6';
+        const position = inbox.config?.position ?? 'right';
+        const code = `<script>
+window.CrmWidgetOptions = {
+  server: '${window.location.origin}',
+  color: '${color}',
+  position: '${position}',
+};
+</script>
+<script src="${window.location.origin}/js/widget.js"></script>`;
+
+        try {
+            await navigator.clipboard.writeText(code.trim());
+            setCopiedId(inbox.id);
+            setTimeout(() => setCopiedId(null), 2000);
+        } catch {
+            // ignore
+        }
     }
 
     async function handleDelete(id: number) {
@@ -122,6 +144,16 @@ return;
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="size-7 shrink-0"
+                                            asChild
+                                        >
+                                            <a href={`/admin/inboxes/${inbox.id}/edit`}>
+                                                <Edit className="size-3.5" />
+                                            </a>
+                                        </Button>
                                         {inbox.webhook_enabled ? (
                                             <Badge variant="default" className="text-[10px]">Webhook ✅</Badge>
                                         ) : (
@@ -158,6 +190,18 @@ return;
                                         <div className="text-xs text-muted-foreground">
                                             <div>Domain: {inbox.config.domain}</div>
                                             <div>Greeting: {inbox.config.greeting}</div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="mt-2 h-7 text-xs"
+                                                onClick={() => copyEmbed(inbox)}
+                                            >
+                                                {copiedId === inbox.id ? (
+                                                    <>Copied!</>
+                                                ) : (
+                                                    <><Copy className="mr-1 size-3" /> Copy Embed</>
+                                                )}
+                                            </Button>
                                         </div>
                                     )}
                                     <div className="pt-1 text-[10px] text-muted-foreground">
