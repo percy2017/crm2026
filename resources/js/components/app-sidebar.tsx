@@ -1,6 +1,6 @@
 import { Link, usePage } from '@inertiajs/react';
 import Echo from 'laravel-echo';
-import { Archive, BookUser, Globe, Images, Inbox as InboxIcon, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp, Zap } from 'lucide-react';
+import { Archive, BookUser, Globe, Images, Inbox as InboxIcon, LayoutGrid, MessageSquare, Settings, ShieldCheck, ShoppingCart, TrendingUp, Zap, ZapIcon } from 'lucide-react';
 import Pusher from 'pusher-js';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -188,6 +188,11 @@ export function AppSidebar() {
             title: 'Medios',
             href: '/admin/media',
             icon: Images,
+        },
+        {
+            title: 'Resp. Rápidas',
+            href: '/admin/quick-replies',
+            icon: ZapIcon,
         },
     ];
 

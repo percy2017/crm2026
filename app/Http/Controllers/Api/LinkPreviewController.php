@@ -9,32 +9,65 @@ use Illuminate\Support\Facades\Http;
 
 class LinkPreviewController extends Controller
 {
+    private const BOT_BLOCKERS = [
+        'facebook.com', 'www.facebook.com', 'm.facebook.com',
+        'instagram.com', 'www.instagram.com',
+        'tiktok.com', 'www.tiktok.com', 'vm.tiktok.com',
+        'threads.net', 'www.threads.net',
+    ];
+
     public function preview(Request $request): JsonResponse
     {
         $request->validate(['url' => 'required|url']);
 
         $url = $request->input('url');
+        $host = parse_url($url, PHP_URL_HOST) ?? '';
+
+        // Skip HTTP fetch for known bot-blocking sites
+        if (in_array($host, self::BOT_BLOCKERS, true)) {
+            return response()->json([
+                'url' => $url,
+                'title' => null,
+                'description' => null,
+                'image' => null,
+            ]);
+        }
+
+        // YouTube: known image without HTTP fetch
+        $knownImage = $this->knownYouTubeImage($url);
+        if ($knownImage) {
+            return response()->json([
+                'url' => $url,
+                'title' => null,
+                'description' => null,
+                'image' => $knownImage,
+            ]);
+        }
 
         try {
-            $response = Http::timeout(5)
-                ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; CRM/1.0)'])
+            $response = Http::timeout(8)
+                ->withOptions(['allow_redirects' => true])
+                ->withHeaders([
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language' => 'es-ES,es;q=0.9,en;q=0.8',
+                ])
                 ->get($url);
-
-            if (! $response->successful()) {
-                return response()->json(['url' => $url]);
-            }
 
             $html = $response->body();
 
             $title = $this->extractMeta($html, 'og:title')
+                ?? $this->extractMeta($html, 'twitter:title')
                 ?? $this->extractTitle($html)
                 ?? null;
 
             $description = $this->extractMeta($html, 'og:description')
+                ?? $this->extractMeta($html, 'twitter:description')
                 ?? $this->extractMeta($html, 'description')
                 ?? null;
 
             $image = $this->extractMeta($html, 'og:image')
+                ?? $this->extractMeta($html, 'twitter:image')
                 ?? null;
 
             if ($image && ! str_starts_with($image, 'http')) {
@@ -50,8 +83,22 @@ class LinkPreviewController extends Controller
                 'image' => $image,
             ]);
         } catch (\Exception $e) {
-            return response()->json(['url' => $url]);
+            return response()->json([
+                'url' => $url,
+                'title' => null,
+                'description' => null,
+                'image' => null,
+            ]);
         }
+    }
+
+    private function knownYouTubeImage(string $url): ?string
+    {
+        if (preg_match('%(?:youtube(?:-nocookie)?\.com/(?:[^/]*/.*|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/)([^"&?/\s]{11})%i', $url, $match)) {
+            return 'https://img.youtube.com/vi/'.$match[1].'/hqdefault.jpg';
+        }
+
+        return null;
     }
 
     private function extractMeta(string $html, string $property): ?string

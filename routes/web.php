@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\AdminDealController;
 use App\Http\Controllers\Admin\AdminEntradaController;
 use App\Http\Controllers\Admin\AdminMediaController;
 use App\Http\Controllers\Admin\AdminPipelineStageController;
+use App\Http\Controllers\Admin\AdminQuickReplyController;
 use App\Http\Controllers\Admin\AdminRoleController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdminWooCommerceController;
@@ -99,6 +100,14 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::get('/media/list', [AdminMediaController::class, 'list'])->name('media.list');
     Route::post('/media/upload', [AdminMediaController::class, 'upload'])->name('media.upload');
     Route::delete('/media/{filename}', [AdminMediaController::class, 'destroy'])->name('media.destroy');
+
+    Route::prefix('quick-replies')->name('quick-replies.')->group(function () {
+        Route::get('/', [AdminQuickReplyController::class, 'index'])->name('index');
+        Route::get('/list', [AdminQuickReplyController::class, 'list'])->name('list');
+        Route::post('/', [AdminQuickReplyController::class, 'store'])->name('store');
+        Route::put('/{quickReply}', [AdminQuickReplyController::class, 'update'])->name('update');
+        Route::delete('/{quickReply}', [AdminQuickReplyController::class, 'destroy'])->name('destroy');
+    });
 
     Route::get('/woocommerce', [AdminWooCommerceController::class, 'dashboard'])->name('woocommerce.index');
     Route::get('/woocommerce/dashboard-data', [AdminWooCommerceController::class, 'dashboardData'])->name('woocommerce.dashboard-data');

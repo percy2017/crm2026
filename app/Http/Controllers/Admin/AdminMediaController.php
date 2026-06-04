@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Message;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -102,6 +104,11 @@ class AdminMediaController extends Controller
             'by_type' => $byType,
             'by_size' => $bySize,
             'recent' => $recent,
+            'inboxes_with_media' => Message::whereNotNull('media_url')
+                ->select('instance', DB::raw('count(*) as total'))
+                ->groupBy('instance')
+                ->orderBy('instance')
+                ->get(),
         ]);
     }
 
@@ -111,9 +118,28 @@ class AdminMediaController extends Controller
         $page = max((int) $request->input('page', 1), 1);
         $typeFilter = $request->input('type');
         $sizeFilter = $request->input('size');
+        $inboxFilter = $request->input('inbox');
+
+        $inboxFilenames = null;
+        if ($inboxFilter) {
+            $inboxFilenames = Message::where('instance', $inboxFilter)
+                ->whereNotNull('media_url')
+                ->pluck('media_url')
+                ->map(fn (string $path) => basename($path))
+                ->unique()
+                ->values()
+                ->all();
+        }
 
         $files = collect(Storage::disk('public')->files())
             ->filter(fn (string $path) => $path !== '.gitignore')
+            ->filter(function (string $path) use ($inboxFilenames) {
+                if ($inboxFilenames === null) {
+                    return true;
+                }
+
+                return in_array(basename($path), $inboxFilenames, true);
+            })
             ->map(fn (string $path) => [
                 'name' => $path,
                 'size' => Storage::disk('public')->size($path),

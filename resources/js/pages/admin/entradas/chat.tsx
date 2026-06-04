@@ -1,14 +1,14 @@
 import { Head, usePage } from '@inertiajs/react';
-import EmojiPicker from 'emoji-picker-react';
-import type {EmojiClickData} from 'emoji-picker-react';
 import Echo from 'laravel-echo';
-import { FileText, MessageSquare, Mic, Paperclip, Send, Search, Phone, Smile, X, ChevronDown } from 'lucide-react';
+import { ChevronDown, MessageSquare, X } from 'lucide-react';
 import Pusher from 'pusher-js';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import { ChatConversationList } from '@/components/entradas/chat/chat-conversation-list';
+import { ChatHeader } from '@/components/entradas/chat/chat-header';
+import { ChatInputFooter } from '@/components/entradas/chat/chat-input-footer';
+import { ChatMessageBubble } from '@/components/entradas/chat/chat-message-bubble';
 import ChatSidebar from '@/components/entradas/chat-sidebar';
-import { LinkPreview } from '@/components/entradas/link-preview';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -18,46 +18,10 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import { chats as entradasChats, messages as entradasMessages, send as entradasSend, reaction as entradasReaction } from '@/routes/admin/entradas';
 import { upload as mediaUpload } from '@/routes/admin/media';
 import type { LocalConversation, LocalMessage } from '@/types';
-import { renderMessageText } from '@/utils/message';
-
-function formatDatetime(dateStr: string): string {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - d.getTime();
-    const days = Math.floor(diff / 86400000);
-
-    if (days === 0) {
-        return d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
-    }
-
-    if (days === 1) {
-        return 'Ayer';
-    }
-
-    if (days < 7) {
-        return d.toLocaleDateString('es-PE', { weekday: 'short' });
-    }
-
-    return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' });
-}
-
-function ChatSkeleton() {
-    return (
-        <div className="flex items-center gap-3 px-4 py-3">
-            <Skeleton className="size-10 rounded-full" />
-            <div className="flex-1 space-y-1.5">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-48" />
-            </div>
-        </div>
-    );
-}
 
 function getCsrfToken(): string {
     return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
@@ -91,12 +55,12 @@ function detectMediaType(mimetype: string): string {
     }
 
     if (mimetype.startsWith('video/')) {
-return 'video';
-}
+        return 'video';
+    }
 
     if (mimetype.startsWith('audio/')) {
-return 'audio';
-}
+        return 'audio';
+    }
 
     return 'document';
 }
@@ -123,6 +87,11 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; msg: LocalMessage } | null>(null);
+    const [quickReplyQuery, setQuickReplyQuery] = useState<string | null>(null);
+    const [msgSearch, setMsgSearch] = useState('');
+    const [aiGenerating, setAiGenerating] = useState(false);
+    const [aiDraft, setAiDraft] = useState<string | null>(null);
+    const [aiConfirmOpen, setAiConfirmOpen] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const [isAtBottom, setIsAtBottom] = useState(true);
@@ -136,13 +105,13 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const selectedConvRef = useRef(selectedConv);
     selectedConvRef.current = selectedConv;
 
-const [connectionStatus, setConnectionStatus] = useState<string | undefined>(
-    (inboxes ?? []).find((i) => i.name === instance)?.config?.connectionStatus ?? 'unknown',
-);
+    const [connectionStatus, setConnectionStatus] = useState<string | undefined>(
+        (inboxes ?? []).find((i) => i.name === instance)?.config?.connectionStatus ?? 'unknown',
+    );
 
-const [chatTab, setChatTab] = useState<'all' | 'unread'>('all');
+    const [chatTab, setChatTab] = useState<'unread' | 'read'>('unread');
 
-const instInfo = (inboxes ?? []).find(
+    const instInfo = (inboxes ?? []).find(
         (i) => i.name === instance,
     );
     const instName = instInfo?.name ?? instance;
@@ -287,8 +256,6 @@ const instInfo = (inboxes ?? []).find(
                                 : c,
                         )
                         .sort((a, b) => {
-                            if (a.unread_count && !b.unread_count) return -1;
-                            if (!a.unread_count && b.unread_count) return 1;
                             const aTime = a.last_message?.created_at ?? '';
                             const bTime = b.last_message?.created_at ?? '';
 
@@ -379,8 +346,8 @@ const instInfo = (inboxes ?? []).find(
         const el = messagesContainerRef.current;
 
         if (!el) {
-return;
-}
+            return;
+        }
 
         const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
         setIsAtBottom(atBottom);
@@ -396,8 +363,12 @@ return;
         setIsAtBottom(true);
     };
 
-const filteredConversations = conversations.filter((c) => {
+    const filteredConversations = conversations.filter((c) => {
         if (chatTab === 'unread' && !c.unread_count) {
+            return false;
+        }
+
+        if (chatTab === 'read' && c.unread_count > 0) {
             return false;
         }
 
@@ -480,7 +451,6 @@ const filteredConversations = conversations.filter((c) => {
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 toast.error(data.error ?? 'Error al enviar mensaje');
-                // Remove temp message since WhatsApp did not confirm
                 setMessages((prev) => prev.filter((m) => m.id !== tempId));
                 pendingMsgRef.current = null;
 
@@ -498,7 +468,6 @@ const filteredConversations = conversations.filter((c) => {
             }
         } catch (e) {
             toast.error('Error de conexión al enviar mensaje');
-            // Remove temp message since WhatsApp did not confirm
             setMessages((prev) => prev.filter((m) => m.id !== tempId));
             pendingMsgRef.current = null;
         } finally {
@@ -540,6 +509,27 @@ const filteredConversations = conversations.filter((c) => {
         }
     }, [instance, selectedConv]);
 
+    function handleQuickReplySelect(reply: { shortcut: string; message: string | null; media_url: string | null; media_type: string | null }) {
+        let text = reply.message ?? '';
+        const name = selectedConv?.contact.name ?? '';
+        const phone = selectedConv?.channel_id.split('@')[0] ?? '';
+
+        text = text.replace(/\{nombre\}/g, name).replace(/\{telefono\}/g, phone);
+
+        setInput(text);
+        setQuickReplyQuery(null);
+
+        if (reply.media_url) {
+            sendMessage({
+                number: selectedConv!.channel_id.split('@')[0],
+                text,
+                channel_id: selectedConv!.channel_id,
+                media_url: reply.media_url,
+                media_type: reply.media_type ?? 'document',
+            });
+        }
+    }
+
     function handleSendText() {
         if (!input.trim() || !selectedConv) {
             return;
@@ -552,9 +542,81 @@ const filteredConversations = conversations.filter((c) => {
         });
     }
 
+    async function handleAiReply() {
+        if (!selectedConv) return;
+
+        setAiGenerating(true);
+
+        try {
+            const recentMessages = messages.slice(-10).map((m) => ({
+                role: m.input_output ? 'client' : 'agent',
+                text: m.text || '[media]',
+            }));
+
+            const contactName =
+                selectedConv.contact?.name ||
+                selectedConv.contact?.phone ||
+                selectedConv.channel_id;
+
+            const res = await fetch('/admin/ai-agent/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': getCsrfToken(),
+                },
+                body: JSON.stringify({
+                    message: `Genera una respuesta breve y natural para ${contactName}. No uses markdown, solo texto plano.`,
+                    conversation_context: {
+                        contact_name: contactName,
+                        contact_phone: selectedConv.channel_id.split('@')[0],
+                        recent_messages: recentMessages,
+                    },
+                    page_context: {
+                        url: window.location.pathname,
+                        component: 'Chat',
+                    },
+                }),
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast.error(data.error ?? 'Error al generar respuesta con IA');
+                return;
+            }
+
+            const data = await res.json();
+            const aiText = data.message as string;
+
+            if (aiText) {
+                setAiDraft(aiText);
+                toast.success('Respuesta generada');
+            } else {
+                toast.error('La IA no generó una respuesta');
+            }
+
+            console.log('AI response:', { ok: res.ok, aiText });
+        } catch (err) {
+            console.error('handleAiReply error:', err);
+            toast.error('Error de conexión al generar respuesta con IA');
+        } finally {
+            setAiGenerating(false);
+        }
+    }
+
     function handleKeyDown(e: React.KeyboardEvent) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
+
+            if (quickReplyQuery !== null) {
+                return;
+            }
+
+            if (quickReplyQuery !== null) {
+                setQuickReplyQuery(null);
+            }
+
             handleSendText();
         }
     }
@@ -624,7 +686,7 @@ const filteredConversations = conversations.filter((c) => {
                 try {
                     const filename = await uploadToMedios(file);
 
-await sendMessage({
+                    await sendMessage({
                         number: selectedConv.channel_id.split('@')[0],
                         channel_id: selectedConv.channel_id,
                         media_url: filename,
@@ -662,11 +724,6 @@ await sendMessage({
         }
     }
 
-    function handleEmojiClick(emoji: EmojiClickData) {
-        setInput((prev) => prev + emoji.emoji);
-        setShowEmojiPicker(false);
-    }
-
     function handleDrop(e: React.DragEvent) {
         e.preventDefault();
         setDragOver(false);
@@ -697,183 +754,43 @@ await sendMessage({
             <Head title={`Entradas - ${instName}`} />
 
             <div className="flex h-[calc(100dvh-4rem)] overflow-hidden md:h-[calc(100dvh-5rem)]">
-                <div className="flex w-80 shrink-0 flex-col border-r">
-                    <div className="flex items-center gap-2 border-b p-3">
-                        <Avatar className="size-8 shrink-0">
-                            <AvatarImage src={instInfo?.config?.profilePicUrl ?? undefined} />
-                            <AvatarFallback className="text-xs">
-                                {instName.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">{instName}</p>
-                            <p className="truncate text-xs text-muted-foreground">
-                                {conversations.length} conversaciones
-                            </p>
-                        </div>
-                    </div>
-
-                    {connectionStatus && connectionStatus !== 'open' && (
-                        <div className={`px-3 py-1.5 text-xs font-medium ${
-                            connectionStatus === 'stale'
-                                ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
-                                : connectionStatus === 'connecting'
-                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                        }`}>
-                            {connectionStatus === 'stale' && '⚠️ No se han recibido mensajes en los últimos minutos'}
-                            {connectionStatus === 'connecting' && '🔄 Reconectando...'}
-                            {connectionStatus === 'disconnected' && '🔌 Desconectado — escanea el código QR'}
-                            {connectionStatus === 'removed' && '❌ Instancia eliminada — crea una nueva'}
-                            {connectionStatus === 'closed' && '🔴 Conexión cerrada'}
-                        </div>
-                    )}
-
-                    
-
-                    <div className="border-b p-2">
-                        <div className="relative">
-                            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                placeholder="Buscar..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="h-8 pl-8 pr-8 text-sm"
-                            />
-                            {search && (
-                                <button
-                                    type="button"
-                                    onClick={() => setSearch('')}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                >
-                                    <X className="size-3.5" />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="flex gap-1 border-b px-2 py-1">
-                        <button
-                            type="button"
-                            onClick={() => setChatTab('all')}
-                            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                                chatTab === 'all'
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                            }`}
-                        >
-                            Todos ({conversations.length})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setChatTab('unread')}
-                            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                                chatTab === 'unread'
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                            }`}
-                        >
-                            No leídos ({conversations.filter((c) => c.unread_count > 0).length})
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto">
-                        {loadingChats ? (
-                            <>
-                                <ChatSkeleton />
-                                <ChatSkeleton />
-                                <ChatSkeleton />
-                                <ChatSkeleton />
-                                <ChatSkeleton />
-                            </>
-                        ) : filteredConversations.length === 0 ? (
-                            <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-                                <MessageSquare className="size-8" />
-                                <p className="text-sm">Sin conversaciones</p>
-                            </div>
-                        ) : (
-                            filteredConversations.map((conv) => (
-                                <button
-                                    key={conv.channel_id}
-                                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent ${
-                                        selectedConv?.channel_id === conv.channel_id
-                                            ? 'bg-accent'
-                                            : ''
-                                    }`}
-                                    onClick={() => setSelectedConv(conv)}
-                                >
-                                    <Avatar className="size-10 shrink-0">
-                                        <AvatarImage src={conv.contact.profile_pic_url ?? undefined} />
-                                        <AvatarFallback className="text-xs">
-                                            {(conv.contact.name ?? '?').charAt(0).toUpperCase()}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center justify-between">
-                                            <p className="truncate text-sm font-medium">
-                                                {conv.contact.name || conv.channel_id}
-                                            </p>
-                                            {conv.unread_count > 0 && (
-                                                <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
-                                                    {conv.unread_count > 9 ? '9+' : conv.unread_count}
-                                                </span>
-                                            )}
-                                            {conv.last_message?.created_at && (
-                                                <span className="shrink-0 text-xs text-muted-foreground">
-                                                    {formatDatetime(conv.last_message.created_at)}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <p className="truncate text-xs text-muted-foreground">
-                                            {conv.channel_id}
-                                        </p>
-                                        <p className="truncate text-xs text-muted-foreground">
-                                            {conv.last_message?.text ?? '—'}
-                                        </p>
-                                    </div>
-                                </button>
-                            ))
-                        )}
-                    </div>
-                </div>
+                <ChatConversationList
+                    conversations={conversations}
+                    filteredConversations={filteredConversations}
+                    loadingChats={loadingChats}
+                    search={search}
+                    setSearch={setSearch}
+                    chatTab={chatTab}
+                    setChatTab={setChatTab}
+                    selectedConv={selectedConv}
+                    onSelectConv={setSelectedConv}
+                    instName={instName}
+                    instInfo={instInfo}
+                    conversationsCount={conversations.length}
+                />
 
                 <div className="flex flex-1 flex-col relative">
-                        {selectedConv ? (
+                    {selectedConv ? (
                         <>
-                            <div className="flex items-center gap-3 border-b p-3">
-                                <button
-                                    type="button"
-                                    className="flex min-w-0 flex-1 items-center gap-3"
-                                    onClick={() => {
-                                        setSidebarChannelId(selectedConv.channel_id);
-                                        setSidebarContactId(selectedConv.contact_id);
-                                    }}
-                                >
-                                    <Avatar className="size-9 shrink-0">
-                                        <AvatarImage src={selectedConv.contact.profile_pic_url ?? undefined} />
-                                        <AvatarFallback className="text-xs">
-                                            {(selectedConv.contact.name ?? '?').charAt(0).toUpperCase()}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="min-w-0 flex-1 text-left">
-                                        <p className="truncate text-sm font-semibold">
-                                            {selectedConv.contact.name || selectedConv.channel_id}
-                                        </p>
-                                        <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                                            <Phone className="size-3 shrink-0" />
-                                            <span className="truncate">{selectedConv.channel_id}</span>
-                                        </p>
-                                    </div>
-                                </button>
-                            </div>
+                            <ChatHeader
+                                connectionStatus={connectionStatus}
+                                selectedConv={selectedConv}
+                                msgSearch={msgSearch}
+                                setMsgSearch={setMsgSearch}
+                                onOpenSidebar={() => {
+                                    setSidebarChannelId(selectedConv.channel_id);
+                                    setSidebarContactId(selectedConv.contact_id);
+                                }}
+                            />
 
-<div
+                            <div
                                 ref={messagesContainerRef}
                                 className={`flex-1 overflow-y-auto overflow-x-hidden relative ${dragOver ? 'ring-2 ring-primary' : ''}`}
                                 onScroll={handleScroll}
                                 onDragOver={(e) => {
- e.preventDefault(); setDragOver(true); 
-}}
+                                    e.preventDefault();
+                                    setDragOver(true);
+                                }}
                                 onDragLeave={() => setDragOver(false)}
                                 onDrop={handleDrop}
                             >
@@ -890,7 +807,7 @@ await sendMessage({
                                         <p className="text-sm">No hay mensajes</p>
                                     </div>
                                 ) : (
-<div className="space-y-1.5 p-4">
+                                    <div className="space-y-1.5 p-4">
                                         {(() => {
                                             const reactionMap: Record<string, string> = {};
                                             const filteredMessages: typeof messages = [];
@@ -898,9 +815,22 @@ await sendMessage({
                                             for (const msg of messages) {
                                                 if (msg.message_type === 'reactionMessage' && msg.reaction_to) {
                                                     reactionMap[msg.reaction_to] = msg.text ?? '👍';
-                                                } else {
+                                                } else if (
+                                                    !msgSearch
+                                                    || (msg.text && msg.text.toLowerCase().includes(msgSearch.toLowerCase()))
+                                                    || (msg.media_url && msg.message_type?.toLowerCase().includes(msgSearch.toLowerCase()))
+                                                ) {
                                                     filteredMessages.push(msg);
                                                 }
+                                            }
+
+                                            if (filteredMessages.length === 0 && msgSearch) {
+                                                return (
+                                                    <div className="flex flex-col items-center gap-2 py-20 text-muted-foreground">
+                                                        <MessageSquare className="size-8" />
+                                                        <p className="text-sm">Sin resultados para "{msgSearch}"</p>
+                                                    </div>
+                                                );
                                             }
 
                                             return filteredMessages.map((msg) => {
@@ -909,92 +839,20 @@ await sendMessage({
                                                 const reaction = reactionMap[msg.message_id ?? ''];
 
                                                 return (
-                                                    <div
+                                                    <ChatMessageBubble
                                                         key={msg.id}
-                                                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
-                                                        onContextMenu={(e) => {
-                                                            e.preventDefault();
-                                                            if (msg.message_id && selectedConv) {
-                                                                setContextMenu({ x: e.clientX, y: e.clientY, msg });
+                                                        msg={msg}
+                                                        isMe={isMe}
+                                                        isGroup={isGroup}
+                                                        reaction={reaction}
+                                                        msgSearch={msgSearch}
+                                                        onContextMenu={(e, m) => {
+                                                            if (m.message_id && selectedConv) {
+                                                                setContextMenu({ x: e.clientX, y: e.clientY, msg: m });
                                                             }
                                                         }}
-                                                    >
-                                                        <div className="min-w-0 max-w-[75%]">
-                                                            {isGroup && (
-                                                                <div className="mb-1 flex items-start gap-1.5">
-                                                                    <Avatar className="mt-0.5 size-5">
-                                                                        <AvatarImage src={msg.sender_avatar ?? undefined} />
-                                                                        <AvatarFallback className="text-[10px]">
-                                                                            {(msg.sender_name ?? msg.sender_phone ?? '?').charAt(0).toUpperCase()}
-                                                                        </AvatarFallback>
-                                                                    </Avatar>
-                                                                    <div className="leading-tight">
-<p className="truncate text-sm font-medium text-foreground">
-                                                                    {msg.sender_name || msg.sender_phone || 'Desconocido'}
-                                                                </p>
-                                                                        <p className="text-[10px] text-muted-foreground/60">
-                                                                            {msg.sender_phone ?? ''}@s.whatsapp.net
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                            <div className="relative rounded-2xl bg-muted px-4 py-2 text-sm">
-                                                                {msg.media_url && msg.message_type === 'audioMessage' ? (
-                                                                    <audio src={msg.media_url} controls className="h-10 w-48" />
-                                                                ) : msg.media_url && (msg.message_type === 'imageMessage' || msg.message_type === 'stickerMessage') ? (
-<img src={msg.media_url} alt="" className="max-h-36 max-w-56 rounded-lg object-contain cursor-pointer hover:opacity-80" loading="lazy" onClick={() => setLightboxSrc(msg.media_url)} />
-                                                                 ) : msg.media_url && msg.message_type === 'videoMessage' ? (
-                                                                     <video src={msg.media_url} controls className="max-h-36 max-w-56 rounded-lg cursor-pointer hover:opacity-80" onClick={() => setLightboxSrc(msg.media_url)} />
-) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
-                                                    <div className="flex flex-col gap-1 cursor-pointer" onClick={() => setLightboxSrc(msg.media_url)}>
-                                                        <div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-3">
-                                                            <FileText className="size-6 shrink-0 text-muted-foreground" />
-                                                            <span className="truncate text-sm font-medium">
-                                                                {msg.text || 'Ver PDF'}
-                                                            </span>
-                                                        </div>
-                                                                        {msg.text && (
-                                                                            <p className="whitespace-pre-wrap break-all text-xs">
-                                                                                {renderMessageText(msg.text)}
-                                                                            </p>
-                                                                        )}
-                                                                    </div>
-                                                                ) : msg.media_url ? (
-                                                                    <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="underline">
-                                                                        📎 {msg.text || 'Ver archivo'}
-                                                                    </a>
-                                                                ) : null}
-{msg.text && !msg.media_url?.endsWith('.pdf') && (
-                                                                     <p className="whitespace-pre-wrap break-all">
-                                                                         {renderMessageText(msg.text)}
-                                                                     </p>
-                                                                 )}
-                                                                 {msg.text && !msg.media_url && (
-                                                                     <LinkPreview text={msg.text} />
-                                                                 )}
-                                                                <p className="mt-0.5 flex items-center justify-end gap-1 text-right text-[10px] text-muted-foreground">
-                                                                    {formatDatetime(msg.created_at)}
-                                                                    {isMe && msg.status && (
-                                                                        <span className="inline-flex items-center">
-                                                                            {msg.status === 'pending' && <span className="text-muted-foreground/50">⌛</span>}
-                                                                            {msg.status === 'sent' && <span className="text-muted-foreground">✓</span>}
-                                                                            {msg.status === 'delivered' && <span className="text-muted-foreground">✓✓</span>}
-                                                                            {msg.status === 'read' && <span className="text-blue-500">✓✓</span>}
-                                                                            {msg.status === 'failed' && <span className="text-red-500">✗</span>}
-                                                                        </span>
-                                                                    )}
-                                                                </p>
-                                                            </div>
-                                                            {reaction && (
-                                                                <div className={cn(
-                                                                    'relative z-10 -mt-2 flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs shadow-xs',
-                                                                    isMe ? 'mr-3 justify-end' : 'ml-3 justify-start',
-                                                                )}>
-                                                                    <span>{reaction}</span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
+                                                        onLightbox={setLightboxSrc}
+                                                    />
                                                 );
                                             });
                                         })()}
@@ -1007,7 +865,7 @@ await sendMessage({
                                 <button
                                     type="button"
                                     onClick={scrollToBottom}
-                                    className="absolute bottom-16 right-6 z-40 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+                                    className="absolute bottom-32 right-6 z-40 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
                                     title="Ir abajo"
                                 >
                                     <span className="relative inline-flex">
@@ -1021,176 +879,28 @@ await sendMessage({
                                 </button>
                             )}
 
-                            <div className="border-t p-3">
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept="*/*"
-                                    className="hidden"
-                                    onChange={handleFilePicked}
-                                />
-
-                                {pickedFile ? (
-                                    <div className="flex flex-col gap-2 rounded-lg border bg-muted/50 p-2">
-                                        <div className="flex items-center gap-2">
-                                            {pickedFile.type.startsWith('image/') && (
-                                                <img
-                                                    src={URL.createObjectURL(pickedFile)}
-                                                    alt="preview"
-                                                    className="size-10 shrink-0 rounded object-cover"
-                                                    onError={(e) => {
-                                                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                                                    }}
-                                                />
-                                            )}
-                                            {pickedFile.type.startsWith('video/') && (
-                                                <video
-                                                    src={URL.createObjectURL(pickedFile)}
-                                                    className="size-10 shrink-0 rounded object-cover"
-                                                    muted
-                                                />
-                                            )}
-                                            <span className="min-w-0 flex-1 truncate text-sm">
-                                                {pickedFile.name}
-                                            </span>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="size-7 shrink-0"
-                                                onClick={() => setPickedFile(null)}
-                                                disabled={uploading}
-                                            >
-                                                <X className="size-3.5" />
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                onClick={handleSendFile}
-                                                disabled={uploading}
-                                            >
-                                                {uploading ? 'Subiendo...' : 'Enviar'}
-                                            </Button>
-                                        </div>
-                                        <textarea
-                                            placeholder="Añade un caption..."
-                                            value={input}
-                                            onChange={(e) => setInput(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && !e.shiftKey) {
-                                                    e.preventDefault();
-                                                    handleSendFile();
-                                                }
-                                            }}
-onInput={(e) => {
-                                                    const el = e.currentTarget;
-                                                    el.style.height = 'auto';
-                                                    el.style.height = el.scrollHeight + 'px';
-                                                }}
-                                                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[32px] max-h-24 entrada-textarea"
-                                                rows={1}
-                                                disabled={uploading}
-                                            />
-                                    </div>
-                                ) : (
-                                    <div className="flex items-end gap-1.5 flex-nowrap">
-                                        <div className="flex items-center gap-0">
-                                            <button
-                                                type="button"
-                                                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-                                                onClick={() => fileInputRef.current?.click()}
-                                                disabled={sending || uploading || recording}
-                                                title="Adjuntar archivo"
-                                            >
-                                                <Paperclip className="size-4" />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className={`flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 ${recording ? 'animate-pulse text-red-500' : ''}`}
-                                                onClick={toggleRecording}
-                                                disabled={sending || uploading}
-                                                title={recording ? 'Detener grabación' : 'Grabar audio'}
-                                            >
-                                                <Mic className="size-4" />
-                                            </button>
-                                            <div className="relative">
-                                                <button
-                                                    type="button"
-                                                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                                                    onClick={() => setShowEmojiPicker((v) => !v)}
-                                                    title="Emojis"
-                                                >
-                                                    <Smile className="size-4" />
-                                                </button>
-                                                {showEmojiPicker && (
-                                                    <div className="absolute bottom-full left-0 mb-1 z-50">
-                                                        <div
-                                                            className="fixed inset-0 z-40"
-                                                            onClick={() => setShowEmojiPicker(false)}
-                                                        />
-                                                        <div className="relative z-50">
-                                                            <EmojiPicker
-                                                                onEmojiClick={handleEmojiClick}
-                                                                skinTonesDisabled
-                                                                searchDisabled={false}
-                                                                width={300}
-                                                                height={350}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <textarea
-                                                placeholder={
-                                                    recording
-                                                        ? 'Grabando...'
-                                                        : 'Escribe un mensaje...'
-                                                }
-                                                value={input}
-                                                onChange={(e) => setInput(e.target.value)}
-                                                onKeyDown={handleKeyDown}
-                                                onPaste={(e) => {
-                                                    const items = e.clipboardData?.items;
-
-                                                    if (!items) {
-return;
-}
-
-                                                    for (const item of items) {
-                                                        if (item.type.startsWith('image/') || item.type.startsWith('video/') || item.type.startsWith('audio/')) {
-                                                            e.preventDefault();
-                                                            const file = item.getAsFile();
-
-                                                            if (file && selectedConv) {
-                                                                setPickedFile(file);
-                                                            }
-
-                                                            return;
-                                                        }
-                                                    }
-                                                }}
-                                                onInput={(e) => {
-                                                    const el = e.currentTarget;
-                                                    el.style.height = 'auto';
-                                                    el.style.height = el.scrollHeight + 'px';
-                                                }}
-                                                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-28 entrada-textarea"
-                                                rows={1}
-                                                disabled={sending || uploading || recording}
-                                            />
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-                                            onClick={handleSendText}
-                                            disabled={!input.trim() || sending || uploading || recording}
-                                            title="Enviar"
-                                        >
-                                            <Send className="size-4" />
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <ChatInputFooter
+                                input={input}
+                                setInput={setInput}
+                                sending={sending}
+                                uploading={uploading}
+                                recording={recording}
+                                selectedConv={selectedConv}
+                                quickReplyQuery={quickReplyQuery}
+                                setQuickReplyQuery={setQuickReplyQuery}
+                                aiGenerating={aiGenerating}
+                                pickedFile={pickedFile}
+                                setPickedFile={setPickedFile}
+                                fileInputRef={fileInputRef}
+                                showEmojiPicker={showEmojiPicker}
+                                setShowEmojiPicker={setShowEmojiPicker}
+                                onSendText={handleSendText}
+                                onSendFile={handleSendFile}
+                                onAiReply={() => setAiConfirmOpen(true)}
+                                onToggleRecording={toggleRecording}
+                                onQuickReplySelect={handleQuickReplySelect}
+                                onKeyDown={handleKeyDown}
+                            />
                         </>
                     ) : (
                         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
@@ -1199,7 +909,7 @@ return;
                             <p className="text-sm">
                                 Elige un chat de la lista para empezar
                             </p>
-</div>
+                        </div>
                     )}
                 </div>
             </div>
@@ -1216,8 +926,10 @@ return;
                     setSidebarContactId(null);
                 }}
                 onDelete={selectedConv ? () => {
- setDeleteDialog(selectedConv); setSidebarChannelId(null); setSidebarContactId(null); 
-} : undefined}
+                    setDeleteDialog(selectedConv);
+                    setSidebarChannelId(null);
+                    setSidebarContactId(null);
+                } : undefined}
             />
 
             <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
@@ -1298,6 +1010,60 @@ return;
                     </div>
                 </>
             )}
+
+            <Dialog open={aiConfirmOpen} onOpenChange={(open) => { if (!open) setAiConfirmOpen(false); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Responder con IA</DialogTitle>
+                        <DialogDescription>
+                            ¿Estás seguro de generar una respuesta automática con IA para {selectedConv?.contact.name || selectedConv?.channel_id}?
+                            Se generará una respuesta basada en el historial reciente de la conversación.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAiConfirmOpen(false)}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={() => {
+                            setAiConfirmOpen(false);
+                            handleAiReply();
+                        }}>
+                            Sí, generar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={aiDraft !== null} onOpenChange={(open) => { if (!open) setAiDraft(null); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Responder con IA</DialogTitle>
+                        <DialogDescription>
+                            Revisa la respuesta generada antes de enviarla.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted p-3 text-sm">
+                        {aiDraft}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAiDraft(null)}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={() => {
+                            if (!aiDraft || !selectedConv) return;
+                            const text = aiDraft;
+                            setAiDraft(null);
+                            sendMessage({
+                                number: selectedConv.channel_id.split('@')[0],
+                                text,
+                                channel_id: selectedConv.channel_id,
+                            });
+                        }}>
+                            Enviar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }

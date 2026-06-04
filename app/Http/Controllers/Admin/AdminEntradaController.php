@@ -10,6 +10,7 @@ use App\Models\Message;
 use App\Services\EvolutionApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Models\Inbox;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,10 +48,7 @@ class AdminEntradaController extends Controller
                     ->first(['text', 'created_at']),
             ]);
 
-        $sorted = $conversations->sortByDesc(fn ($c) => [
-            $c['unread_count'] > 0 ? 1 : 0,
-            $c['last_message']?->created_at ?? '',
-        ]);
+        $sorted = $conversations->sortByDesc(fn ($c) => $c['last_message']?->created_at ?? '');
 
         return response()->json($sorted->values());
     }
@@ -163,7 +161,19 @@ class AdminEntradaController extends Controller
                 'status' => 'sent',
             ]);
 
-            $contact = Contact::where('phone', $number)->first();
+            $contact = Contact::firstOrCreate(
+                ['phone' => $number],
+                ['type' => 'individual'],
+            );
+
+            Conversation::firstOrCreate(
+                ['channel_id' => $channelId, 'instance' => $instance],
+                [
+                    'inbox_id' => Inbox::where('name', $instance)->value('id'),
+                    'contact_id' => $contact->id,
+                    'status' => 'active',
+                ],
+            );
 
             broadcast(new MessageCreated(
                 $instance,
@@ -186,8 +196,8 @@ class AdminEntradaController extends Controller
                     'status' => $message->status,
                 ],
                 [
-                    'name' => $contact?->name,
-                    'phone' => $contact?->phone ?? $number,
+                    'name' => $contact->name,
+                    'phone' => $contact->phone ?? $number,
                     'profile_pic_url' => null,
                 ],
             ));
@@ -244,7 +254,19 @@ class AdminEntradaController extends Controller
                 'status' => 'sent',
             ]);
 
-            $contact = Contact::where('phone', $number)->first();
+            $contact = Contact::firstOrCreate(
+                ['phone' => $number],
+                ['type' => 'individual'],
+            );
+
+            Conversation::firstOrCreate(
+                ['channel_id' => $channelId, 'instance' => $instance],
+                [
+                    'inbox_id' => Inbox::where('name', $instance)->value('id'),
+                    'contact_id' => $contact->id,
+                    'status' => 'active',
+                ],
+            );
 
             broadcast(new MessageCreated(
                 $instance,
@@ -265,8 +287,8 @@ class AdminEntradaController extends Controller
                     'status' => $message->status,
                 ],
                 [
-                    'name' => $contact?->name,
-                    'phone' => $contact?->phone ?? $number,
+                    'name' => $contact->name,
+                    'phone' => $contact->phone ?? $number,
                     'profile_pic_url' => null,
                 ],
             ));

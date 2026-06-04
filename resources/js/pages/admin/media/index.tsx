@@ -42,6 +42,7 @@ type StatsResponse = {
     by_type: Record<string, number>;
     by_size: Record<string, number>;
     recent: { today: number; week: number; month: number };
+    inboxes_with_media: Array<{ instance: string; total: number }>;
 };
 
 const FILE_ICONS: Record<string, string> = {
@@ -144,6 +145,7 @@ export default function MediaIndex() {
     const [selected, setSelected] = useState<MediaFile | null>(null);
     const [typeFilter, setTypeFilter] = useState('');
     const [sizeFilter, setSizeFilter] = useState('');
+    const [inboxFilter, setInboxFilter] = useState('');
     const [stats, setStats] = useState<StatsResponse | null>(null);
     const [statsLoading, setStatsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +170,10 @@ params.set('type', typeFilter);
 params.set('size', sizeFilter);
 }
 
+        if (inboxFilter) {
+params.set('inbox', inboxFilter);
+}
+
         try {
             const res = await fetch(`${adminMediaIndex().url}/list?${params}`, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -190,7 +196,7 @@ params.set('size', sizeFilter);
 
     useEffect(() => {
         loadFiles(1, false);
-    }, [typeFilter, sizeFilter]);
+    }, [typeFilter, sizeFilter, inboxFilter]);
 
     useEffect(() => {
         (async () => {
@@ -365,6 +371,19 @@ return;
                                 <SelectItem value="small">&lt; 1 MB</SelectItem>
                                 <SelectItem value="medium">&lt; 10 MB</SelectItem>
                                 <SelectItem value="large">≥ 10 MB</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Select value={inboxFilter} onValueChange={(v) => setInboxFilter(v === '_all' ? '' : v)}>
+                            <SelectTrigger className="w-[160px]">
+                                <SelectValue placeholder="Inbox" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="_all">All Inboxes</SelectItem>
+                                {(stats?.inboxes_with_media ?? []).map((ibx) => (
+                                    <SelectItem key={ibx.instance} value={ibx.instance}>
+                                        {ibx.instance} ({ibx.total})
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                         <input

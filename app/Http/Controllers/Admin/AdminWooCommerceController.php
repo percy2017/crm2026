@@ -8,6 +8,7 @@ use Codexshaper\WooCommerce\Facades\Category;
 use Codexshaper\WooCommerce\Facades\Order;
 use Codexshaper\WooCommerce\Facades\PaymentGateway;
 use Codexshaper\WooCommerce\Facades\Product;
+use Codexshaper\WooCommerce\Facades\Variation;
 use Codexshaper\WooCommerce\Facades\Report;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -121,6 +122,10 @@ class AdminWooCommerceController extends Controller
                 $options['type'] = $request->input('type');
             }
 
+            if ($request->has('category')) {
+                $options['category'] = $request->input('category');
+            }
+
             $result = Product::paginate($perPage, $page, $options);
 
             return response()->json($result);
@@ -144,10 +149,43 @@ class AdminWooCommerceController extends Controller
         }
     }
 
+    public function productVariations(int $id, Request $request): JsonResponse
+    {
+        try {
+            $perPage = (int) $request->input('per_page', 100);
+            $page = (int) $request->input('page', 1);
+
+            $options = [];
+
+            if ($request->has('search')) {
+                $options['search'] = $request->input('search');
+            }
+
+            $result = Variation::paginate($id, $perPage, $page, $options);
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+    }
+
     public function pos(): Response
     {
-        $categories = Category::all();
-        $paymentGateways = collect(PaymentGateway::all())->map(fn ($g) => (array) $g)->filter(fn ($g) => $g['enabled'] ?? false)->values();
+        try {
+            $categories = Category::all();
+        } catch (\Exception $e) {
+            report($e);
+            $categories = [];
+        }
+
+        try {
+            $paymentGateways = collect(PaymentGateway::all())->map(fn ($g) => (array) $g)->filter(fn ($g) => $g['enabled'] ?? false)->values();
+        } catch (\Exception $e) {
+            report($e);
+            $paymentGateways = collect([]);
+        }
 
         return Inertia::render('admin/woocommerce/pos', [
             'categories' => $categories,
@@ -198,18 +236,40 @@ class AdminWooCommerceController extends Controller
                 $data['customer_note'] = $validated['customer_note'];
             }
 
+            $metaData = [
+                ['key' => '_sale_date', 'value' => now()->toDateString()],
+                ['key' => '_wc_order_attribution_source_type', 'value' => 'pos'],
+                ['key' => '_wc_order_attribution_utm_source', 'value' => 'pos'],
+                ['key' => '_wc_order_attribution_medium', 'value' => 'pos'],
+                ['key' => '_wc_order_attribution_device', 'value' => 'desktop'],
+                ['key' => '_tvp_terminal', 'value' => 'TERMINAL-API'],
+                ['key' => '_tvp_vendedor', 'value' => auth()->user()->name ?? 'admin'],
+            ];
+
             if (! empty($validated['billing'])) {
-                $data['billing'] = $validated['billing'];
+                $billing = $validated['billing'];
+
+                if (! empty($billing['contact_id'])) {
+                    $metaData[] = ['key' => '_contact_id', 'value' => (int) $billing['contact_id']];
+                }
+
+                $data['billing'] = [
+                    'first_name' => $billing['first_name'] ?? '',
+                    'last_name'  => $billing['last_name'] ?? '',
+                    'company'    => '',
+                    'address_1'  => '-',
+                    'address_2'  => '',
+                    'city'       => '-',
+                    'state'      => '',
+                    'postcode'   => '',
+                    'country'    => 'BO',
+                    'email'      => $billing['email'] ?? '',
+                    'phone'      => $billing['phone'] ?? '',
+                ];
             }
 
             if (! empty($validated['coupon_lines'])) {
                 $data['coupon_lines'] = $validated['coupon_lines'];
-            }
-
-            $metaData = [];
-
-            if (! empty($validated['billing']['contact_id'])) {
-                $metaData[] = ['key' => '_contact_id', 'value' => (int) $validated['billing']['contact_id']];
             }
 
             if ($validated['sale_type'] === 'subscription') {
@@ -218,19 +278,12 @@ class AdminWooCommerceController extends Controller
                     ['key' => '_subscription_title', 'value' => $validated['subscription_title'] ?? ''],
                     ['key' => '_subscription_end_date', 'value' => $validated['subscription_end_date'] ?? ''],
                     ['key' => '_subscription_start_date', 'value' => now()->toDateString()],
-                    ['key' => '_sale_date', 'value' => now()->toDateString()],
-                    ['key' => '_wc_order_attribution_source_type', 'value' => 'pos'],
-                    ['key' => '_wc_order_attribution_utm_source', 'value' => 'pos'],
-                    ['key' => '_wc_order_attribution_medium', 'value' => 'pos'],
-                    ['key' => '_wc_order_attribution_device', 'value' => 'desktop'],
-                    ['key' => '_tvp_terminal', 'value' => 'TERMINAL-API'],
-                    ['key' => '_tvp_vendedor', 'value' => auth()->user()->name ?? 'admin'],
                 ]);
             }
 
-            if (! empty($metaData)) {
-                $data['meta_data'] = $metaData;
-            }
+            $data['meta_data'] = $metaData;
+
+            \Illuminate\Support\Facades\Log::info('POS order payload', $data);
 
             $order = Order::create($data);
 
