@@ -118,7 +118,7 @@ class EvolutionApiService
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
-            ->timeout(120)
+
             ->post("/chat/findContacts/{$instance}", []);
 
         if ($response->failed()) {
@@ -135,7 +135,6 @@ class EvolutionApiService
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
-            ->timeout(30)
             ->get("/chat/findChats/{$instance}");
 
         if ($response->failed()) {
@@ -165,10 +164,13 @@ class EvolutionApiService
 
     public function sendText(string $instance, string $number, string $text): array
     {
-        $response = $this->client()->post("/message/sendText/{$instance}", [
-            'number' => $number,
-            'text' => $text,
-        ]);
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->post("/message/sendText/{$instance}", [
+                'number' => $number,
+                'text' => $text,
+            ]);
 
         if ($response->failed()) {
             throw new RuntimeException(
@@ -179,21 +181,22 @@ class EvolutionApiService
         return $response->json() ?? [];
     }
 
-    public function sendMedia(string $instance, string $number, string $mediaType, string $mediaUrl, string $mimetype, ?string $caption = null, ?string $fileName = null): array
+    public function sendMedia(string $instance, string $number, string $mediaType, string $mediaPath, string $mimetype, ?string $caption = null, ?string $fileName = null): array
     {
+        $mediaUrl = asset('storage/'.rawurlencode($mediaPath));
+
         $payload = [
             'number' => $number,
             'mediatype' => $mediaType,
             'mimetype' => $mimetype,
             'media' => $mediaUrl,
             'caption' => $caption ?? '',
-            'fileName' => $fileName ?? basename(rawurldecode($mediaUrl)),
+            'fileName' => $fileName ?? basename($mediaPath),
         ];
 
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
-            ->timeout(120)
             ->post("/message/sendMedia/{$instance}", $payload);
 
         if ($response->failed()) {
@@ -210,13 +213,14 @@ class EvolutionApiService
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
-            ->timeout(30)
             ->post("/message/sendReaction/{$instance}", [
                 'number' => $number,
-                'reactionMessage' => [
-                    'key' => ['id' => $originalMessageId],
-                    'text' => $reactionEmoji,
+                'key' => [
+                    'id' => $originalMessageId,
+                    'remoteJid' => $number.'@s.whatsapp.net',
+                    'fromMe' => true,
                 ],
+                'reaction' => $reactionEmoji,
             ]);
 
         if ($response->failed()) {
@@ -233,7 +237,7 @@ class EvolutionApiService
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
-            ->timeout(120)
+
             ->get("/group/fetchAllGroups/{$instance}", [
                 'getParticipants' => 'true',
             ]);
@@ -252,7 +256,6 @@ class EvolutionApiService
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
-            ->timeout(30)
             ->get("/group/findGroupInfos/{$instance}", [
                 'groupJid' => $groupJid,
             ]);
@@ -343,7 +346,6 @@ class EvolutionApiService
     {
         return Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-            ->timeout(10);
+            ->acceptJson();
     }
 }

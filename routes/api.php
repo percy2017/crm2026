@@ -1,11 +1,14 @@
 <?php
 
+use App\Http\Controllers\Api\LinkPreviewController;
 use App\Http\Controllers\Web\WidgetController;
 use App\Http\Controllers\Webhooks\EvolutionWebhookController;
 use App\Http\Middleware\WidgetCors;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/webhooks/evolution/{instance?}', [EvolutionWebhookController::class, 'handle'])->name('api.webhooks.evolution');
+
+Route::get('/link-preview', [LinkPreviewController::class, 'preview'])->name('api.link-preview');
 
 Route::prefix('widget')
     ->middleware([WidgetCors::class, 'throttle:60,1'])

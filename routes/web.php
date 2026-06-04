@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminAiAgentController;
 use App\Http\Controllers\Admin\AdminContactController;
+use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminDealController;
 use App\Http\Controllers\Admin\AdminEntradaController;
 use App\Http\Controllers\Admin\AdminMediaController;
@@ -18,7 +19,6 @@ use Illuminate\Support\Facades\Route;
 Route::inertia('/', 'welcome')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
     Route::inertia('reverb-monitor', 'reverb-monitor')->name('reverb-monitor');
 });
 
@@ -44,7 +44,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
-    Route::redirect('/', '/dashboard')->name('index');
+    Route::get('/', [AdminDashboardController::class, 'index'])->name('index');
+    Route::get('/dashboard-data', [AdminDashboardController::class, 'data'])->name('dashboard-data');
     Route::get('/users', [AdminUserController::class, 'index'])->name('users.index');
     Route::get('/users/create', [AdminUserController::class, 'create'])->name('users.create');
     Route::post('/users', [AdminUserController::class, 'store'])->name('users.store');

@@ -17,7 +17,6 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { dashboard } from '@/routes';
 import { index as adminUsersIndex } from '@/routes/admin/users';
 import type { NavItem } from '@/types';
 
@@ -132,7 +131,7 @@ export function AppSidebar() {
     const platformItems: NavItem[] = [
         {
             title: 'Dashboard',
-            href: dashboard(),
+            href: '/admin',
             icon: LayoutGrid,
         },
         {
@@ -198,7 +197,6 @@ export function AppSidebar() {
             href: '/admin/woocommerce',
             icon: ShoppingCart,
             children: [
-                { title: 'Estadísticas', href: '/admin/woocommerce' },
                 { title: 'POS', href: '/admin/woocommerce/pos' },
                 { title: 'Orders', href: '/admin/woocommerce/orders' },
                 { title: 'Calendario', href: '/admin/woocommerce/subscriptions/calendar' },
@@ -227,7 +225,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboard()} prefetch>
+                            <Link href="/admin" prefetch>
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>

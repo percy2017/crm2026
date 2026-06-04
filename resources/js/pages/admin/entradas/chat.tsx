@@ -2,11 +2,12 @@ import { Head, usePage } from '@inertiajs/react';
 import EmojiPicker from 'emoji-picker-react';
 import type {EmojiClickData} from 'emoji-picker-react';
 import Echo from 'laravel-echo';
-import { MessageSquare, Mic, Paperclip, Send, Search, Phone, Smile, X, ChevronDown } from 'lucide-react';
+import { FileText, MessageSquare, Mic, Paperclip, Send, Search, Phone, Smile, X, ChevronDown } from 'lucide-react';
 import Pusher from 'pusher-js';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import ChatSidebar from '@/components/entradas/chat-sidebar';
+import { LinkPreview } from '@/components/entradas/link-preview';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -138,6 +139,8 @@ export default function EntradasChat({ instance }: { instance: string }) {
 const [connectionStatus, setConnectionStatus] = useState<string | undefined>(
     (inboxes ?? []).find((i) => i.name === instance)?.config?.connectionStatus ?? 'unknown',
 );
+
+const [chatTab, setChatTab] = useState<'all' | 'unread'>('all');
 
 const instInfo = (inboxes ?? []).find(
         (i) => i.name === instance,
@@ -284,6 +287,8 @@ const instInfo = (inboxes ?? []).find(
                                 : c,
                         )
                         .sort((a, b) => {
+                            if (a.unread_count && !b.unread_count) return -1;
+                            if (!a.unread_count && b.unread_count) return 1;
                             const aTime = a.last_message?.created_at ?? '';
                             const bTime = b.last_message?.created_at ?? '';
 
@@ -317,6 +322,7 @@ const instInfo = (inboxes ?? []).find(
         });
 
         channel.listen('.message.status.updated', (data: {
+            id?: number;
             channel_id: string;
             message_id: string;
             status: string;
@@ -324,7 +330,8 @@ const instInfo = (inboxes ?? []).find(
             if (data.channel_id === selectedConvRef.current?.channel_id) {
                 setMessages((prev) =>
                     prev.map((m) =>
-                        m.message_id === data.message_id
+                        (m.message_id && m.message_id === data.message_id)
+                        || (data.id != null && m.id === data.id)
                             ? { ...m, status: data.status as LocalMessage['status'] }
                             : m,
                     ),
@@ -354,6 +361,20 @@ const instInfo = (inboxes ?? []).find(
         }
     }, [messages]);
 
+    useEffect(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+
+        const observer = new ResizeObserver(() => {
+            if (isAtBottom) {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+            }
+        });
+
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [isAtBottom]);
+
     const handleScroll = () => {
         const el = messagesContainerRef.current;
 
@@ -375,10 +396,14 @@ return;
         setIsAtBottom(true);
     };
 
-    const filteredConversations = conversations.filter((c) => {
+const filteredConversations = conversations.filter((c) => {
+        if (chatTab === 'unread' && !c.unread_count) {
+            return false;
+        }
+
         if (!search) {
-return true;
-}
+            return true;
+        }
 
         const q = search.toLowerCase();
         const phoneFromJid = c.channel_id.split('@')[0];
@@ -398,6 +423,15 @@ return true;
         file_name?: string;
     }) {
         setSending(true);
+        setInput('');
+        setPickedFile(null);
+
+        const textarea = document.querySelector<HTMLTextAreaElement>(
+            '.entrada-textarea',
+        );
+        if (textarea) {
+            textarea.style.height = 'auto';
+        }
 
         const tempId = Date.now();
         pendingMsgRef.current = { channel_id: payload.channel_id, tempId };
@@ -446,6 +480,9 @@ return true;
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 toast.error(data.error ?? 'Error al enviar mensaje');
+                // Remove temp message since WhatsApp did not confirm
+                setMessages((prev) => prev.filter((m) => m.id !== tempId));
+                pendingMsgRef.current = null;
 
                 return;
             }
@@ -461,9 +498,10 @@ return true;
             }
         } catch (e) {
             toast.error('Error de conexión al enviar mensaje');
+            // Remove temp message since WhatsApp did not confirm
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+            pendingMsgRef.current = null;
         } finally {
-            setInput('');
-            setPickedFile(null);
             setSending(false);
         }
     }
@@ -691,6 +729,8 @@ await sendMessage({
                         </div>
                     )}
 
+                    
+
                     <div className="border-b p-2">
                         <div className="relative">
                             <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -710,6 +750,31 @@ await sendMessage({
                                 </button>
                             )}
                         </div>
+                    </div>
+
+                    <div className="flex gap-1 border-b px-2 py-1">
+                        <button
+                            type="button"
+                            onClick={() => setChatTab('all')}
+                            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                                chatTab === 'all'
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                            }`}
+                        >
+                            Todos ({conversations.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setChatTab('unread')}
+                            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                                chatTab === 'unread'
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                            }`}
+                        >
+                            No leídos ({conversations.filter((c) => c.unread_count > 0).length})
+                        </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto">
@@ -802,9 +867,9 @@ await sendMessage({
                                 </button>
                             </div>
 
-                            <div
+<div
                                 ref={messagesContainerRef}
-                                className={`flex-1 overflow-y-auto overflow-x-hidden ${dragOver ? 'ring-2 ring-primary' : ''}`}
+                                className={`flex-1 overflow-y-auto overflow-x-hidden relative ${dragOver ? 'ring-2 ring-primary' : ''}`}
                                 onScroll={handleScroll}
                                 onDragOver={(e) => {
  e.preventDefault(); setDragOver(true); 
@@ -877,12 +942,17 @@ await sendMessage({
                                                                 {msg.media_url && msg.message_type === 'audioMessage' ? (
                                                                     <audio src={msg.media_url} controls className="h-10 w-48" />
                                                                 ) : msg.media_url && (msg.message_type === 'imageMessage' || msg.message_type === 'stickerMessage') ? (
-                                                                    <img src={msg.media_url} alt="" className="max-h-36 max-w-56 rounded-lg object-contain cursor-pointer hover:opacity-80" loading="lazy" onClick={() => setLightboxSrc(msg.media_url)} />
-                                                                ) : msg.media_url && msg.message_type === 'videoMessage' ? (
-                                                                    <video src={msg.media_url} controls className="max-h-36 max-w-56 rounded-lg" />
-                                                                ) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <iframe src={msg.media_url} className="w-56 h-32 rounded-lg border" />
+<img src={msg.media_url} alt="" className="max-h-36 max-w-56 rounded-lg object-contain cursor-pointer hover:opacity-80" loading="lazy" onClick={() => setLightboxSrc(msg.media_url)} />
+                                                                 ) : msg.media_url && msg.message_type === 'videoMessage' ? (
+                                                                     <video src={msg.media_url} controls className="max-h-36 max-w-56 rounded-lg cursor-pointer hover:opacity-80" onClick={() => setLightboxSrc(msg.media_url)} />
+) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
+                                                    <div className="flex flex-col gap-1 cursor-pointer" onClick={() => setLightboxSrc(msg.media_url)}>
+                                                        <div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-3">
+                                                            <FileText className="size-6 shrink-0 text-muted-foreground" />
+                                                            <span className="truncate text-sm font-medium">
+                                                                {msg.text || 'Ver PDF'}
+                                                            </span>
+                                                        </div>
                                                                         {msg.text && (
                                                                             <p className="whitespace-pre-wrap break-all text-xs">
                                                                                 {renderMessageText(msg.text)}
@@ -894,11 +964,14 @@ await sendMessage({
                                                                         📎 {msg.text || 'Ver archivo'}
                                                                     </a>
                                                                 ) : null}
-                                                                {msg.text && !msg.media_url?.endsWith('.pdf') && (
-                                                                    <p className="whitespace-pre-wrap break-all">
-                                                                        {renderMessageText(msg.text)}
-                                                                    </p>
-                                                                )}
+{msg.text && !msg.media_url?.endsWith('.pdf') && (
+                                                                     <p className="whitespace-pre-wrap break-all">
+                                                                         {renderMessageText(msg.text)}
+                                                                     </p>
+                                                                 )}
+                                                                 {msg.text && !msg.media_url && (
+                                                                     <LinkPreview text={msg.text} />
+                                                                 )}
                                                                 <p className="mt-0.5 flex items-center justify-end gap-1 text-right text-[10px] text-muted-foreground">
                                                                     {formatDatetime(msg.created_at)}
                                                                     {isMe && msg.status && (
@@ -914,7 +987,7 @@ await sendMessage({
                                                             </div>
                                                             {reaction && (
                                                                 <div className={cn(
-                                                                    '-mt-2 flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs shadow-xs',
+                                                                    'relative z-10 -mt-2 flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs shadow-xs',
                                                                     isMe ? 'mr-3 justify-end' : 'ml-3 justify-start',
                                                                 )}>
                                                                     <span>{reaction}</span>
@@ -934,16 +1007,17 @@ await sendMessage({
                                 <button
                                     type="button"
                                     onClick={scrollToBottom}
-                                    className="absolute bottom-24 right-6 z-50 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+                                    className="absolute bottom-16 right-6 z-40 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
                                     title="Ir abajo"
                                 >
-                                    {unreadCount > 0 ? (
-                                        <span className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                                            {unreadCount > 9 ? '9+' : unreadCount}
-                                        </span>
-                                    ) : (
+                                    <span className="relative inline-flex">
                                         <ChevronDown className="size-5" />
-                                    )}
+                                        {unreadCount > 0 && (
+                                            <span className="absolute -top-2 -right-2 flex size-4 min-w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none">
+                                                {unreadCount > 9 ? '9+' : unreadCount}
+                                            </span>
+                                        )}
+                                    </span>
                                 </button>
                             )}
 
@@ -1006,15 +1080,15 @@ await sendMessage({
                                                     handleSendFile();
                                                 }
                                             }}
-                                            onInput={(e) => {
-                                                const el = e.currentTarget;
-                                                el.style.height = 'auto';
-                                                el.style.height = el.scrollHeight + 'px';
-                                            }}
-                                            className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[32px] max-h-24"
-                                            rows={1}
-                                            disabled={uploading}
-                                        />
+onInput={(e) => {
+                                                    const el = e.currentTarget;
+                                                    el.style.height = 'auto';
+                                                    el.style.height = el.scrollHeight + 'px';
+                                                }}
+                                                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[32px] max-h-24 entrada-textarea"
+                                                rows={1}
+                                                disabled={uploading}
+                                            />
                                     </div>
                                 ) : (
                                     <div className="flex items-end gap-1.5 flex-nowrap">
@@ -1100,7 +1174,7 @@ return;
                                                     el.style.height = 'auto';
                                                     el.style.height = el.scrollHeight + 'px';
                                                 }}
-                                                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-28"
+                                                className="flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-28 entrada-textarea"
                                                 rows={1}
                                                 disabled={sending || uploading || recording}
                                             />
@@ -1125,7 +1199,7 @@ return;
                             <p className="text-sm">
                                 Elige un chat de la lista para empezar
                             </p>
-                        </div>
+</div>
                     )}
                 </div>
             </div>
@@ -1174,11 +1248,25 @@ return;
                         <X className="size-4" />
                     </button>
                     {lightboxSrc && (
-                        <img
-                            src={lightboxSrc}
-                            alt=""
-                            className="max-h-[85vh] w-auto rounded-lg object-contain"
-                        />
+                        lightboxSrc.endsWith('.pdf') ? (
+                            <iframe
+                                src={lightboxSrc}
+                                className="h-[85vh] w-full max-w-4xl rounded-lg"
+                            />
+                        ) : lightboxSrc.match(/\.(mp4|webm|ogg|mov|avi)$/i) || lightboxSrc.includes('video') ? (
+                            <video
+                                src={lightboxSrc}
+                                controls
+                                autoPlay
+                                className="max-h-[85vh] w-auto rounded-lg object-contain"
+                            />
+                        ) : (
+                            <img
+                                src={lightboxSrc}
+                                alt=""
+                                className="max-h-[85vh] w-auto rounded-lg object-contain"
+                            />
+                        )
                     )}
                 </DialogContent>
             </Dialog>

@@ -6,7 +6,6 @@ use App\Events\MessageCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Conversation;
-use App\Models\Inbox;
 use App\Models\Message;
 use App\Services\EvolutionApiService;
 use Illuminate\Http\JsonResponse;
@@ -48,7 +47,10 @@ class AdminEntradaController extends Controller
                     ->first(['text', 'created_at']),
             ]);
 
-        $sorted = $conversations->sortByDesc(fn ($c) => $c['last_message']?->created_at);
+        $sorted = $conversations->sortByDesc(fn ($c) => [
+            $c['unread_count'] > 0 ? 1 : 0,
+            $c['last_message']?->created_at ?? '',
+        ]);
 
         return response()->json($sorted->values());
     }
@@ -97,7 +99,7 @@ class AdminEntradaController extends Controller
         return response()->json($messages);
     }
 
-public function send(Request $request, string $instance, EvolutionApiService $evolution): JsonResponse
+    public function send(Request $request, string $instance, EvolutionApiService $evolution): JsonResponse
     {
         ini_set('memory_limit', '-1');
 
@@ -117,57 +119,49 @@ public function send(Request $request, string $instance, EvolutionApiService $ev
                 ?? $number.'@s.whatsapp.net';
 
             $mediaUrl = $request->input('media_url');
+            $text = $request->input('text');
 
             if ($mediaUrl) {
-                $publicUrl = asset('storage/'.rawurlencode($mediaUrl));
-
                 $result = $evolution->sendMedia(
                     $instance,
                     $number,
                     $request->input('media_type', 'document'),
-                    $publicUrl,
+                    $mediaUrl,
                     $request->input('media_mimetype', 'application/octet-stream'),
-                    $request->input('text'),
+                    $text,
                     $request->input('file_name')
                 );
-
-                $messageType = $request->input('media_type') === 'audio' ? 'audioMessage' : ($request->input('media_type') === 'image' ? 'imageMessage' : 'documentMessage');
-
-                $message = Message::create([
-                    'channel_id' => $channelId,
-                    'instance' => $instance,
-                    'input_output' => false,
-                    'message_type' => $messageType,
-                    'text' => $request->input('text'),
-                    'media_url' => $mediaUrl,
-                    'status' => 'pending',
-                ]);
-
-                $keyId = $result['key']['id'] ?? null;
-                if ($keyId) {
-                    $message->update(['message_id' => $keyId]);
-                }
             } else {
                 $result = $evolution->sendText(
                     $instance,
                     $number,
-                    $request->input('text')
+                    $text
                 );
-
-                $message = Message::create([
-                    'channel_id' => $channelId,
-                    'instance' => $instance,
-                    'input_output' => false,
-                    'message_type' => 'extendedTextMessage',
-                    'text' => $request->input('text'),
-                    'status' => 'pending',
-                ]);
-
-                $keyId = $result['key']['id'] ?? null;
-                if ($keyId) {
-                    $message->update(['message_id' => $keyId]);
-                }
             }
+
+            $keyId = $result['key']['id'] ?? null;
+            if (! $keyId) {
+                return response()->json(['error' => 'No se pudo obtener ID del mensaje de WhatsApp'], 500);
+            }
+
+            $messageType = $mediaUrl
+                ? ($request->input('media_type') === 'audio' ? 'audioMessage'
+                    : ($request->input('media_type') === 'image' ? 'imageMessage'
+                    : ($request->input('media_type') === 'video' ? 'videoMessage'
+                    : ($request->input('media_type') === 'sticker' ? 'stickerMessage'
+                    : 'documentMessage'))))
+                : 'extendedTextMessage';
+
+            $message = Message::create([
+                'channel_id' => $channelId,
+                'instance' => $instance,
+                'message_id' => $keyId,
+                'input_output' => false,
+                'message_type' => $messageType,
+                'text' => $text,
+                'media_url' => $mediaUrl,
+                'status' => 'sent',
+            ]);
 
             $contact = Contact::where('phone', $number)->first();
 
@@ -217,7 +211,7 @@ public function send(Request $request, string $instance, EvolutionApiService $ev
         } catch (\Exception $e) {
             report($e);
 
-return response()->json(['error' => $e->getMessage()], 500);
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -237,7 +231,47 @@ return response()->json(['error' => $e->getMessage()], 500);
                 $request->input('message_id')
             );
 
-            return response()->json($result);
+            $number = $request->input('number');
+            $channelId = $number.'@s.whatsapp.net';
+
+            $message = Message::create([
+                'channel_id' => $channelId,
+                'instance' => $instance,
+                'message_type' => 'reactionMessage',
+                'text' => $request->input('emoji'),
+                'reaction_to' => $request->input('message_id'),
+                'input_output' => false,
+                'status' => 'sent',
+            ]);
+
+            $contact = Contact::where('phone', $number)->first();
+
+            broadcast(new MessageCreated(
+                $instance,
+                $channelId,
+                [
+                    'id' => $message->id,
+                    'channel_id' => $message->channel_id,
+                    'message_id' => $message->message_id,
+                    'input_output' => $message->input_output,
+                    'message_type' => $message->message_type,
+                    'text' => $message->text,
+                    'media_url' => null,
+                    'created_at' => $message->created_at,
+                    'sender_phone' => null,
+                    'sender_name' => null,
+                    'sender_avatar' => null,
+                    'reaction_to' => $message->reaction_to,
+                    'status' => $message->status,
+                ],
+                [
+                    'name' => $contact?->name,
+                    'phone' => $contact?->phone ?? $number,
+                    'profile_pic_url' => null,
+                ],
+            ));
+
+            return response()->json(['success' => true]);
         } catch (\Exception $e) {
             report($e);
 
@@ -245,7 +279,7 @@ return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
-            public function destroyConversation(string $instance, Conversation $conversation): JsonResponse
+    public function destroyConversation(string $instance, Conversation $conversation): JsonResponse
     {
         if ($conversation->instance !== $instance) {
             return response()->json(['error' => 'Conversation not found'], 404);

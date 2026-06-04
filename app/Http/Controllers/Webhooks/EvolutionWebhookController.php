@@ -557,23 +557,27 @@ class EvolutionWebhookController extends Controller
             return;
         }
 
-        $updated = Message::where('message_id', $messageId)
+        $message = Message::where('message_id', $messageId)
             ->where('instance', $instance)
             ->where('input_output', false)
-            ->limit(1)
-            ->update(['status' => $mapped]);
+            ->first();
 
-        if ($updated) {
-            try {
-                broadcast(new MessageStatusUpdated(
-                    $instance,
-                    $remoteJid,
-                    $messageId,
-                    $mapped,
-                ));
-            } catch (\Exception) {
-                // broadcast rate-limited, status saved in DB
-            }
+        if (! $message) {
+            return;
+        }
+
+        $message->update(['status' => $mapped]);
+
+        try {
+            broadcast(new MessageStatusUpdated(
+                $instance,
+                $remoteJid,
+                $messageId,
+                $mapped,
+                $message->id,
+            ));
+        } catch (\Exception) {
+            // broadcast rate-limited, status saved in DB
         }
     }
 

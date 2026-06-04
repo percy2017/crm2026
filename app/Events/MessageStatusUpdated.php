@@ -16,6 +16,7 @@ class MessageStatusUpdated implements ShouldBroadcastNow
         public string $channelId,
         public string $messageId,
         public string $status,
+        public ?int $dbId = null,
     ) {}
 
     public function broadcastOn(): array
@@ -31,6 +32,7 @@ class MessageStatusUpdated implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         return [
+            'id' => $this->dbId,
             'channel_id' => $this->channelId,
             'message_id' => $this->messageId,
             'status' => $this->status,

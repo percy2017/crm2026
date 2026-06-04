@@ -6,6 +6,7 @@
 - **React 19**, Inertia 3, Tailwind 4, TypeScript
 - Auth: Laravel Fortify (login/register/2FA/passkeys)
 - Realtime: Laravel Reverb (WebSocket, port 2002) via PM2
+- Infra timeouts: Apache `Timeout 300` in `/etc/apache2/apache2.conf`, nginx `proxy_read_timeout 300s` in SSL config. `EvolutionApiService.php` has **zero** `->timeout()` calls — only infra controls limits.
 - Frontend build: Vite 8, Rolldown
 - **AI**: Laravel AI SDK v0.7, Ollama (local LLM provider)
 
@@ -231,10 +232,18 @@ send.message / messages.update → processAck():
   → Mapea: SERVER_ACK→sent, DELIVERY_ACK→delivered, READ→read, ERROR→failed
   → Busca Message por message_id + instance + fromMe=false
   → Actualiza status en DB
-  → Broadcast MessageStatusUpdated a entradas.{instance}
+  → Broadcast MessageStatusUpdated (con dbId) a entradas.{instance}
 ```
 
 `messages.update` usa `keyId` (no `key.id`). `send.message` envía `status: "PENDING"` que se ignora.
+
+### Send flow (AdminEntradaController)
+
+- **send()** llama a Evolution API **primero** (sin timeout en código), solo crea mensaje en DB si API responde con `key.id`
+- Si API falla (timeout/error) → no se registra nada en CRM, browser recibe error 500
+- **Text**: responde rápido (~1-2s) → mensaje creado con `message_id` + `status: sent`
+- **Media**: puede tardar >30s. Si timeout → el webhook `messages.upsert` llegará después y `processMessage()` creará el mensaje automáticamente
+- Mensajes `fromMe=true` que llegan por webhook se procesan normalmente en `processMessage()` (no hay dedup especial)
 
 ### Methods
 
@@ -283,7 +292,38 @@ processMessage (sincrónico, sin queue):
 
 `message_id` se verifica SOLO dentro de conversaciones de ese inbox (via subquery `whereIn('channel_id', conversations.where('instance'))`). El mismo `message_id` puede existir en diferentes inboxes con diferente dirección IN/OUT.
 
-## Contacts (unified)
+## Frontend Chat Architecture
+
+**Chat page**: `resources/js/pages/admin/entradas/chat.tsx` (large — ~1300 lines, pending split)
+
+### Features
+
+- **Conversation sidebar** with search + two tabs: "Todos" / "No leídos" (client-side filter on `unread_count`)
+- **Message status indicators**: ⌛ pending, ✓ sent, ✓✓ delivered, ✓✓ (blue) read, ✗ failed
+- **Reactions**: right-click context menu, 6 emojis (👍 ❤️ 😂 😮 😢 🙏), stored in `messages` table with `reaction_to`
+- **Lightbox**: images, videos (with `<video controls autoPlay>`), PDF (with `<iframe>`) — click to open
+- **Auto-scroll**: scroll to bottom on new messages; `ResizeObserver` handles media load height changes
+- **Drag-and-drop**: attach files by dropping on messages area
+- **Audio recording**: MediaRecorder API → upload → send as audio
+- **Emoji picker**: `emoji-picker-react` component
+- **WebSocket (Echo/Reverb)**: listens for `.message.created`, `.message.status.updated`, `.inbox.status.updated`
+- **Send flow**: creates temp message locally, calls API, replaces temp with real on success, removes on failure
+
+### Realtime Events
+
+| Event | Broadcast Channel | Handler |
+|---|---|---|
+| `MessageCreated` | `entradas.{instance}` | Add/replace message in list, update conversation list |
+| `MessageStatusUpdated` | `entradas.{instance}` | Update status icon (matchea por `message_id` o `id` de DB) |
+| `InboxStatusUpdated` | `entradas.{instance}` | Update connection status banner |
+
+### Shared Components
+
+| Component | File | Purpose |
+|---|---|---|
+| `ChatSidebar` | `resources/js/components/entradas/chat-sidebar.tsx` | Contact detail sheet (Detalle + Enviar Mensaje tabs) |
+
+## Key Architectural Decisions
 
 **Migration**: `2026_05_29_175631_create_contacts_table.php`
 **Model**: `app/Models/Contact.php`
@@ -354,13 +394,14 @@ Widget controller uses **unified tables**:
 - **Webhook payload check**: ignores if `payload.instance` ≠ URL instance (prevents cross-inbox contamination)
 - **No queue**: `QUEUE_CONNECTION=sync`, webhooks processed synchronously
 - **Message dedup per inbox**: `message_id` scoped to conversations of THIS inbox only
-- **Auto-echo prevention**: `fromMe=false` webhook skipped if OUT already exists for same message_id
+- **Send then save**: CRM calls Evolution API first, only saves message in DB if API responds with `key.id`. If API fails/timeout, nothing saved — webhook handles recovery
 - **`firstOrCreate` for contacts**: never overwrite existing contact data
 - **Conversation unique**: composite `(channel_id, instance)` — same group in different inboxes
 - **`send.message`/`messages.update`**: status updates (SERVER_ACK→sent, DELIVERY_ACK→delivered, READ→read)
 - **Reactions**: `reactionMessage` stored with `reaction_to` pointing to original message's `message_id`
 - **10 migrations**: 1 per table + status/reaction_to columns
 - **No cache/jobs tables**: cache uses Redis, queue is sync
+- **No timeouts in PHP code**: all `->timeout()` removed from `EvolutionApiService.php`. Only Apache (300s) and nginx (300s) control request timeouts
 
 ## Testing
 
