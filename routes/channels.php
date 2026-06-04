@@ -10,6 +10,6 @@ Broadcast::channel('entradas.{instance}', function ($user, $instance) {
     return ['id' => $user->id, 'name' => $user->name];
 });
 
-Broadcast::channel('web-chat', function ($user) {
+Broadcast::channel('inboxes.global', function ($user) {
     return ['id' => $user->id, 'name' => $user->name];
 });

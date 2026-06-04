@@ -93,9 +93,6 @@ export default function WooCommerceDashboard() {
                     <div className="rounded-xl border p-4">
                         <div className="text-sm text-muted-foreground">Products</div>
                         <div className="mt-1 text-2xl font-bold">{data?.total_products ?? '—'}</div>
-                        <Link href="/admin/woocommerce/products" className="text-xs text-blue-600 hover:underline">
-                            View all
-                        </Link>
                     </div>
                     <div className="rounded-xl border p-4">
                         <div className="text-sm text-muted-foreground">Customers</div>

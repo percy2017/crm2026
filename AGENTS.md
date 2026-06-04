@@ -54,7 +54,7 @@
 - Echo + Pusher JS for frontend WebSocket client. Pusher client needs `cluster` option even with Reverb.
 - Reverb requires `pcntl` extension. Ensure `pcntl_*` functions are NOT in `disable_functions` in your PHP CLI php.ini.
 
-## Database: 9 migrations, 1 per table
+## Database: 10 migrations, 1 per table
 
 | # | File | Tables |
 |---|---|---|
@@ -66,7 +66,8 @@
 | 6 | `2026_05_31_042101_create_pipelines_table.php` | `pipelines`, `pipeline_stages`, `deals` |
 | 7 | `2026_06_01_032311_create_inboxes_table.php` | `inboxes` (config JSON con instanceId/apikey/serverUrl) |
 | 8 | `2026_06_01_040000_create_conversations_table.php` | `conversations` (con status/assigned_to, FK → inboxes/contacts) |
-| 9 | `2026_06_01_050000_create_messages_table.php` | `messages` (instance, message_id, sender_phone) |
+| 9 | `2026_06_01_050000_create_messages_table.php` | `messages` (instance, message_id, sender_phone, status, reaction_to) |
+| 10 | `2026_06_02_210000_add_status_and_reaction_to_to_messages_table.php` | Adds `status`(pending/sent/delivered/read/failed) + `reaction_to`(FK message_id) to `messages` |
 
 ## Unified Table Architecture
 
@@ -201,10 +202,39 @@ The API returns flat instance objects (NOT nested in `instance` key):
     "enabled": true,
     "url": "https://crm.percyalvarez.lat/api/webhooks/evolution/tigo1",
     "webhookBase64": true,
-    "events": ["MESSAGES_UPSERT"]
+    "events": ["MESSAGES_UPSERT", "SEND_MESSAGE", "MESSAGES_UPDATE"]
   }
 }
 ```
+
+### Events (latest)
+
+The webhook now subscribes to **9 events** via `setWebhookWithAllEvents()`:
+
+| Event | Handler | Purpose |
+|---|---|---|
+| `MESSAGES_UPSERT` | `processMessage()` | New incoming/outgoing messages (text, image, video, audio, reaction, etc.) |
+| `SEND_MESSAGE` | `processAck()` | Confirmation message was sent (`SERVER_ACK` → `sent`, `PENDING` ignored) |
+| `MESSAGES_UPDATE` | `processAck()` | Status changes (`DELIVERY_ACK` → `delivered`, `READ` → `read`, `ERROR` → `failed`) |
+| `CONNECTION_UPDATE` | `handleSystemEvent()` | Connection status changes |
+| `QRCODE_UPDATED` | `handleSystemEvent()` | QR reconnection |
+| `LOGOUT_INSTANCE` | `handleSystemEvent()` | Logout deactivates inbox |
+| `REMOVE_INSTANCE` | `handleSystemEvent()` | Instance removal deactivates inbox |
+| `APPLICATION_STARTUP` | `handleSystemEvent()` | App restart |
+| `CALL` | `handleSystemEvent()` | Call log |
+
+### processAck (status update)
+
+```
+send.message / messages.update → processAck():
+  → Extrae key.id (o keyId en messages.update) + status del payload
+  → Mapea: SERVER_ACK→sent, DELIVERY_ACK→delivered, READ→read, ERROR→failed
+  → Busca Message por message_id + instance + fromMe=false
+  → Actualiza status en DB
+  → Broadcast MessageStatusUpdated a entradas.{instance}
+```
+
+`messages.update` usa `keyId` (no `key.id`). `send.message` envía `status: "PENDING"` que se ignora.
 
 ### Methods
 
@@ -220,6 +250,7 @@ The API returns flat instance objects (NOT nested in `instance` key):
 | `getBase64FromMediaMessage(instance, messageId, remoteJid)` | `POST /chat/getBase64FromMediaMessage/{instance}` |
 | `findContacts(instance)` | `POST /chat/findContacts/{instance}` |
 | `fetchChats(instance)` | `GET /chat/findChats/{instance}` |
+| `sendReaction(instance, number, reactionEmoji, originalMessageId)` | `POST /message/sendReaction/{instance}` |
 | `forInbox(Inbox)` | Returns cloned service with per-instance serverUrl+apikey |
 
 ## Webhook Flow
@@ -231,12 +262,15 @@ Evolution API → POST /api/webhooks/evolution/{inbox_name}
     → ¿payload.instance ≠ URL instance? SÍ → ignora (evita contaminación cruzada)
     → EvolutionWebhook::create() (raw log)
     → ¿event === 'messages.upsert'? SÍ → processMessage()
+    → ¿event === 'send.message' o 'messages.update'? SÍ → processAck()
+    → else → handleSystemEvent()
     → 200 OK
 
 processMessage (sincrónico, sin queue):
   → Filtra: @broadcast, @newsletter
   → Dedup por message_id: solo dentro de conversaciones de ESTE inbox
-  → Skip types: albumMessage, reactionMessage, protocolMessage
+  → Skip types: albumMessage, protocolMessage
+  → reactionMessage NO se salta (se guarda con reaction_to al mensaje padre)
   → senderKeyDistributionMessage NO se salta (metadata válida de grupo)
   → Contact::firstOrCreate() by phone
   → Conversation::firstOrCreate() by channel_id + instance
@@ -288,6 +322,7 @@ Unique: `(channel_id, instance)`
 |---|---|---|
 | `id` | bigIncrements | PK |
 | `message_id` | string | nullable (WhatsApp msg ID) |
+| `reaction_to` | string | nullable, index (message_id del mensaje original para reacciones) |
 | `channel_id` | string | indexed |
 | `instance` | string | nullable, indexed |
 | `input_output` | boolean | true=IN(entrada), false=OUT(salida) |
@@ -295,6 +330,7 @@ Unique: `(channel_id, instance)`
 | `text` | text | nullable |
 | `media_url` | string | nullable |
 | `sender_phone` | string | nullable, indexed |
+| `status` | string(20) | nullable (pending/sent/delivered/read/failed) |
 
 No unique constraint on `message_id` — same message can exist across different inboxes.
 
@@ -311,17 +347,6 @@ Widget controller uses **unified tables**:
 - `Conversation` (with status, inbox_id) instead of `WebConversation`
 - `Message` (input_output = is_from_visitor) instead of `WebMessage`
 
-## Notifications (Frontend-only)
-
-| File | Purpose |
-|---|---|
-| `resources/js/contexts/notifications-context.tsx` | Groups by instance+channel, persists in localStorage (max 20) |
-| `resources/js/components/notifications/notification-bell.tsx` | Icon with red badge counter in header |
-| `resources/js/components/notifications/notifications-sheet.tsx` | Custom side panel (no Radix) |
-| `chat.tsx` | Socket listener → dispatches `notify:message` event |
-
-No DB table, no server-side model, no controller.
-
 ## Key Architectural Decisions
 
 - **Unified tables**: Only 4 core tables (inboxes, contacts, conversations, messages) for ALL message sources
@@ -332,8 +357,9 @@ No DB table, no server-side model, no controller.
 - **Auto-echo prevention**: `fromMe=false` webhook skipped if OUT already exists for same message_id
 - **`firstOrCreate` for contacts**: never overwrite existing contact data
 - **Conversation unique**: composite `(channel_id, instance)` — same group in different inboxes
-- **No `webhookByEvents`**: Evolution API webhook only needs `webhookBase64: true` + `MESSAGES_UPSERT`
-- **9 migrations only**: consolidated from 23, 1 per table
+- **`send.message`/`messages.update`**: status updates (SERVER_ACK→sent, DELIVERY_ACK→delivered, READ→read)
+- **Reactions**: `reactionMessage` stored with `reaction_to` pointing to original message's `message_id`
+- **10 migrations**: 1 per table + status/reaction_to columns
 - **No cache/jobs tables**: cache uses Redis, queue is sync
 
 ## Testing

@@ -72,11 +72,16 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
 
     Route::prefix('inboxes')->name('inboxes.')->group(function () {
         Route::get('/', [InboxCrudController::class, 'index'])->name('index');
+        Route::get('/list', [InboxCrudController::class, 'listJson'])->name('list');
         Route::get('/create', [InboxCrudController::class, 'create'])->name('create');
         Route::post('/', [InboxCrudController::class, 'store'])->name('store');
         Route::get('/{inbox}/edit', [InboxCrudController::class, 'edit'])->name('edit');
         Route::put('/{inbox}', [InboxCrudController::class, 'update'])->name('update');
         Route::delete('/{inbox}', [InboxCrudController::class, 'destroy'])->name('destroy');
+        Route::post('/backup/{inbox}', [InboxCrudController::class, 'backup'])->name('backup');
+        Route::get('/backups', [InboxCrudController::class, 'backups'])->name('backups');
+        Route::delete('/backups/{filename}', [InboxCrudController::class, 'deleteBackup'])->name('backups.destroy');
+        Route::get('/backups/{filename}/download', [InboxCrudController::class, 'downloadBackup'])->name('backups.download');
     });
 
     Route::prefix('entradas')->name('entradas.')->group(function () {
@@ -84,10 +89,12 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
         Route::get('/{instance}/chats', [AdminEntradaController::class, 'chats'])->name('chats');
         Route::get('/{instance}/messages', [AdminEntradaController::class, 'messages'])->name('messages');
         Route::post('/{instance}/send', [AdminEntradaController::class, 'send'])->name('send');
+        Route::post('/{instance}/reaction', [AdminEntradaController::class, 'sendReaction'])->name('reaction');
         Route::delete('/{instance}/conversations/{conversation}', [AdminEntradaController::class, 'destroyConversation'])->name('conversations.destroy');
     });
 
     Route::get('/media', [AdminMediaController::class, 'index'])->name('media.index');
+    Route::get('/media/stats', [AdminMediaController::class, 'stats'])->name('media.stats');
     Route::get('/media/list', [AdminMediaController::class, 'list'])->name('media.list');
     Route::post('/media/upload', [AdminMediaController::class, 'upload'])->name('media.upload');
     Route::delete('/media/{filename}', [AdminMediaController::class, 'destroy'])->name('media.destroy');
@@ -101,11 +108,6 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::get('/woocommerce/subscriptions/calendar', [AdminWooCommerceController::class, 'subscriptionsCalendarPage'])->name('woocommerce.subscriptions.calendar');
     Route::get('/woocommerce/subscriptions/calendar-data', [AdminWooCommerceController::class, 'calendarSubscriptions'])->name('woocommerce.subscriptions.calendar-data');
     Route::get('/woocommerce/products', [AdminWooCommerceController::class, 'products'])->name('woocommerce.products');
-    Route::get('/woocommerce/products/create', [AdminWooCommerceController::class, 'productCreate'])->name('woocommerce.products.create');
-    Route::post('/woocommerce/products', [AdminWooCommerceController::class, 'productStore'])->name('woocommerce.products.store');
-    Route::get('/woocommerce/products/{id}/edit', [AdminWooCommerceController::class, 'productEdit'])->name('woocommerce.products.edit');
-    Route::put('/woocommerce/products/{id}', [AdminWooCommerceController::class, 'productUpdate'])->name('woocommerce.products.update');
-    Route::delete('/woocommerce/products/{id}', [AdminWooCommerceController::class, 'productDestroy'])->name('woocommerce.products.destroy');
     Route::get('/woocommerce/products/{id}', [AdminWooCommerceController::class, 'productShow'])->name('woocommerce.products.show');
     Route::get('/woocommerce/products/{id}/variations', [AdminWooCommerceController::class, 'productVariations'])->name('woocommerce.products.variations');
     Route::get('/woocommerce/orders', [AdminWooCommerceController::class, 'orders'])->name('woocommerce.orders');
@@ -129,4 +131,5 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::post('/contacts/scan-groups', [AdminContactController::class, 'scanGroups'])->name('contacts.scan-groups');
     Route::post('/contacts/import-group-members', [AdminContactController::class, 'importGroupMembers'])->name('contacts.import-group-members');
     Route::post('/contacts/import-csv', [AdminContactController::class, 'importCsv'])->name('contacts.import-csv');
+    Route::post('/contacts/{contact}/sync-group', [AdminContactController::class, 'syncGroup'])->name('contacts.sync-group');
 });

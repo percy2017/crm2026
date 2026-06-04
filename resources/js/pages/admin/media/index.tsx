@@ -1,8 +1,7 @@
 import { Head, router } from '@inertiajs/react';
-import { Check, Copy, CalendarDays, HardDrive, FileType, Download, Trash2, X, Link as LinkIcon, Filter } from 'lucide-react';
+import { Check, Copy, CalendarDays, HardDrive, FileType, Download, Trash2, X, Link as LinkIcon, Filter, Files, Image } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import {
     Select,
@@ -35,6 +34,14 @@ type ListResponse = {
     page: number;
     per_page: number;
     has_more: boolean;
+};
+
+type StatsResponse = {
+    total_files: number;
+    total_size: number;
+    by_type: Record<string, number>;
+    by_size: Record<string, number>;
+    recent: { today: number; week: number; month: number };
 };
 
 const FILE_ICONS: Record<string, string> = {
@@ -137,6 +144,8 @@ export default function MediaIndex() {
     const [selected, setSelected] = useState<MediaFile | null>(null);
     const [typeFilter, setTypeFilter] = useState('');
     const [sizeFilter, setSizeFilter] = useState('');
+    const [stats, setStats] = useState<StatsResponse | null>(null);
+    const [statsLoading, setStatsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -182,6 +191,20 @@ params.set('size', sizeFilter);
     useEffect(() => {
         loadFiles(1, false);
     }, [typeFilter, sizeFilter]);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await fetch(`${adminMediaIndex().url}/stats`, {
+                    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const json: StatsResponse = await res.json();
+                setStats(json);
+            } finally {
+                setStatsLoading(false);
+            }
+        })();
+    }, []);
 
     useEffect(() => {
         const sentinel = sentinelRef.current;
@@ -273,11 +296,52 @@ return;
             <Head title="Medios" />
 
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-                <div className="flex items-center justify-between gap-4">
-                    <Heading title="Medios" description="Click any file to view details" />
-                    <div className="flex items-center gap-2">
-                        <Filter className="size-4 text-muted-foreground shrink-0" />
-                        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v === '_all' ? '' : v)}>
+                {statsLoading ? (
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                        {[1, 2, 3, 4].map((i) => (
+                            <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
+                        ))}
+                    </div>
+                ) : stats ? (
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                        <div className="rounded-xl border border-sidebar-border/70 bg-card p-4">
+                            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                                <Files className="size-4" />
+                                <span className="text-xs font-semibold uppercase tracking-wider">Archivos</span>
+                            </div>
+                            <p className="text-2xl font-bold">{stats.total_files}</p>
+                        </div>
+                        <div className="rounded-xl border border-sidebar-border/70 bg-card p-4">
+                            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                                <HardDrive className="size-4" />
+                                <span className="text-xs font-semibold uppercase tracking-wider">Usado</span>
+                            </div>
+                            <p className="text-2xl font-bold">{formatSize(stats.total_size)}</p>
+                        </div>
+                        <div className="rounded-xl border border-sidebar-border/70 bg-card p-4">
+                            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                                <Image className="size-4" />
+                                <span className="text-xs font-semibold uppercase tracking-wider">Por tipo</span>
+                            </div>
+                            <p className="text-sm font-medium">
+                                {stats.by_type.image} img · {stats.by_type.video} vid · {stats.by_type.document} doc
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-sidebar-border/70 bg-card p-4">
+                            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                                <CalendarDays className="size-4" />
+                                <span className="text-xs font-semibold uppercase tracking-wider">Recientes</span>
+                            </div>
+                            <p className="text-sm font-medium">
+                                Hoy: {stats.recent.today} · 7d: {stats.recent.week}
+                            </p>
+                        </div>
+                    </div>
+                ) : null}
+
+                <div className="flex items-center justify-end gap-2">
+                    <Filter className="size-4 text-muted-foreground shrink-0" />
+                    <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v === '_all' ? '' : v)}>
                             <SelectTrigger className="w-[140px]">
                                 <SelectValue placeholder="Type" />
                             </SelectTrigger>
@@ -313,7 +377,6 @@ return;
                             {uploading ? 'Uploading...' : 'Upload'}
                         </Button>
                     </div>
-                </div>
 
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                     {files.map((file) => (

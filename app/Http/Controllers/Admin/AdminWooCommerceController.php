@@ -9,8 +9,6 @@ use Codexshaper\WooCommerce\Facades\Order;
 use Codexshaper\WooCommerce\Facades\PaymentGateway;
 use Codexshaper\WooCommerce\Facades\Product;
 use Codexshaper\WooCommerce\Facades\Report;
-use Codexshaper\WooCommerce\Facades\Tag;
-use Codexshaper\WooCommerce\Facades\Variation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -26,32 +24,56 @@ class AdminWooCommerceController extends Controller
     public function dashboardData(): JsonResponse
     {
         try {
-            $sales = Report::sales();
-            $topSellersData = Report::topSellers();
-            $totalProducts = Product::count();
-            $totalOrders = Order::count();
-            $salesReport = is_array($sales) ? ($sales[0] ?? $sales) : [];
-            $totalSales = $salesReport['total_sales'] ?? '0.00';
-            $netSales = $salesReport['net_sales'] ?? '0.00';
-            $totalOrdersCount = (int) ($salesReport['total_orders'] ?? $totalOrders);
-            $avgOrderValue = $totalOrdersCount > 0
-                ? number_format((float) $netSales / $totalOrdersCount, 2)
-                : '0.00';
+            $totalOrdersCount = 0;
+            $totalSales = '0.00';
+            $netSales = '0.00';
+            $avgOrderValue = '0.00';
 
-            $topSellers = [];
-            if (is_array($topSellersData)) {
-                foreach ($topSellersData as $item) {
-                    $topSellers[] = [
-                        'id' => $item['product_id'] ?? 0,
-                        'name' => $item['name'] ?? 'Unknown',
-                        'quantity' => (int) ($item['quantity'] ?? 0),
-                        'total' => $item['total'] ?? '0.00',
-                    ];
-                }
+            try {
+                $sales = Report::sales();
+                $salesReport = is_array($sales) ? ($sales[0] ?? $sales) : [];
+                $totalSales = $salesReport['total_sales'] ?? '0.00';
+                $netSales = $salesReport['net_sales'] ?? '0.00';
+                $totalOrdersCount = (int) ($salesReport['total_orders'] ?? 0);
+                $avgOrderValue = $totalOrdersCount > 0
+                    ? number_format((float) $netSales / $totalOrdersCount, 2)
+                    : '0.00';
+            } catch (\Exception $e) {
+                report($e);
             }
 
-            $recentOrders = collect(Order::all(['per_page' => 5, 'orderby' => 'date', 'order' => 'desc']))
-                ->map(fn ($o) => $this->formatOrder($o));
+            $totalProducts = 0;
+            try {
+                $products = Product::all(['per_page' => 1, 'orderby' => 'id', 'order' => 'asc']);
+                $totalProducts = count($products);
+            } catch (\Exception $e) {
+                report($e);
+            }
+
+            $topSellers = [];
+            try {
+                $topSellersData = Report::topSellers();
+                if (is_array($topSellersData)) {
+                    foreach ($topSellersData as $item) {
+                        $topSellers[] = [
+                            'id' => $item['product_id'] ?? 0,
+                            'name' => $item['name'] ?? 'Unknown',
+                            'quantity' => (int) ($item['quantity'] ?? 0),
+                            'total' => $item['total'] ?? '0.00',
+                        ];
+                    }
+                }
+            } catch (\Exception $e) {
+                report($e);
+            }
+
+            $recentOrders = collect([]);
+            try {
+                $orders = Order::all(['per_page' => 5, 'orderby' => 'date', 'order' => 'desc']);
+                $recentOrders = collect($orders)->map(fn ($o) => $this->formatOrder($o));
+            } catch (\Exception $e) {
+                report($e);
+            }
 
             return response()->json([
                 'total_sales' => $totalSales,
@@ -122,122 +144,6 @@ class AdminWooCommerceController extends Controller
         }
     }
 
-    public function productCreate(): Response
-    {
-        $categories = Category::all();
-        $tags = Tag::all();
-
-        return Inertia::render('admin/woocommerce/products/create', [
-            'categories' => $categories,
-            'tags' => $tags,
-        ]);
-    }
-
-    public function productStore(Request $request)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'type' => 'required|string|in:simple,variable,grouped,external',
-            'regular_price' => 'required|string',
-            'sale_price' => 'nullable|string',
-            'description' => 'nullable|string',
-            'short_description' => 'nullable|string',
-            'sku' => 'nullable|string|max:100',
-            'stock_status' => 'nullable|string|in:instock,outofstock,onbackorder',
-            'stock_quantity' => 'nullable|integer|min:0',
-            'manage_stock' => 'nullable|boolean',
-            'status' => 'nullable|string|in:draft,pending,publish',
-            'categories' => 'nullable|array',
-            'categories.*.id' => 'required_with:categories|integer',
-            'tags' => 'nullable|array',
-            'tags.*.id' => 'required_with:tags|integer',
-            'images' => 'nullable|array',
-            'images.*.src' => 'required_with:images|url',
-        ]);
-
-        try {
-            Product::create($validated);
-
-            return redirect()->route('admin.woocommerce.products')->with('success', 'Product created successfully.');
-        } catch (\Exception $e) {
-            report($e);
-
-            return back()->withErrors(['error' => $e->getMessage()])->withInput();
-        }
-    }
-
-    public function productEdit(int $id): Response
-    {
-        $product = Product::withOriginal()->find($id);
-        $categories = Category::all();
-        $tags = Tag::all();
-
-        return Inertia::render('admin/woocommerce/products/edit', [
-            'product' => $product,
-            'categories' => $categories,
-            'tags' => $tags,
-        ]);
-    }
-
-    public function productUpdate(Request $request, int $id)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'type' => 'required|string|in:simple,variable,grouped,external',
-            'regular_price' => 'required|string',
-            'sale_price' => 'nullable|string',
-            'description' => 'nullable|string',
-            'short_description' => 'nullable|string',
-            'sku' => 'nullable|string|max:100',
-            'stock_status' => 'nullable|string|in:instock,outofstock,onbackorder',
-            'stock_quantity' => 'nullable|integer|min:0',
-            'manage_stock' => 'nullable|boolean',
-            'status' => 'nullable|string|in:draft,pending,publish',
-            'categories' => 'nullable|array',
-            'categories.*.id' => 'required_with:categories|integer',
-            'tags' => 'nullable|array',
-            'tags.*.id' => 'required_with:tags|integer',
-            'images' => 'nullable|array',
-            'images.*.src' => 'required_with:images|url',
-        ]);
-
-        try {
-            Product::update($id, $validated);
-
-            return redirect()->route('admin.woocommerce.products')->with('success', 'Product updated successfully.');
-        } catch (\Exception $e) {
-            report($e);
-
-            return back()->withErrors(['error' => $e->getMessage()])->withInput();
-        }
-    }
-
-    public function productDestroy(int $id): JsonResponse
-    {
-        try {
-            Product::delete($id, ['force' => true]);
-
-            return response()->json(['success' => true]);
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json(['error' => $e->getMessage()], 422);
-        }
-    }
-
-    public function productVariations(int $id): JsonResponse
-    {
-        try {
-            $variations = Variation::all($id, ['per_page' => 100]);
-
-            return response()->json(['data' => $variations]);
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json(['error' => $e->getMessage()], 422);
-        }
-    }
-
     public function pos(): Response
     {
         $categories = Category::all();
@@ -276,8 +182,9 @@ class AdminWooCommerceController extends Controller
             ]), $validated['line_items']);
 
             $data = [
-                'payment_method' => $validated['payment_method'],
-                'payment_method_title' => $validated['payment_method_title'],
+                'payment_method' => 'pos',
+                'payment_method_title' => 'Punto de Venta',
+                'created_via' => 'pos-rest-api',
                 'set_paid' => true,
                 'status' => 'completed',
                 'line_items' => $lineItems,
@@ -311,6 +218,13 @@ class AdminWooCommerceController extends Controller
                     ['key' => '_subscription_title', 'value' => $validated['subscription_title'] ?? ''],
                     ['key' => '_subscription_end_date', 'value' => $validated['subscription_end_date'] ?? ''],
                     ['key' => '_subscription_start_date', 'value' => now()->toDateString()],
+                    ['key' => '_sale_date', 'value' => now()->toDateString()],
+                    ['key' => '_wc_order_attribution_source_type', 'value' => 'pos'],
+                    ['key' => '_wc_order_attribution_utm_source', 'value' => 'pos'],
+                    ['key' => '_wc_order_attribution_medium', 'value' => 'pos'],
+                    ['key' => '_wc_order_attribution_device', 'value' => 'desktop'],
+                    ['key' => '_tvp_terminal', 'value' => 'TERMINAL-API'],
+                    ['key' => '_tvp_vendedor', 'value' => auth()->user()->name ?? 'admin'],
                 ]);
             }
 
@@ -361,12 +275,13 @@ class AdminWooCommerceController extends Controller
         return collect($orders)->map(function ($o) {
             $o = (array) $o;
             $billing = (array) ($o['billing'] ?? []);
+            $endDate = $this->findMeta($o, '_subscription_end_date');
 
             return [
                 'id' => $o['id'] ?? 0,
                 'title' => $this->findMeta($o, '_subscription_title') ?? 'Suscripción #'.$o['number'],
-                'start' => $this->findMeta($o, '_subscription_start_date') ?? $o['date_created'],
-                'end' => $this->findMeta($o, '_subscription_end_date'),
+                'start' => $endDate ?? '',
+                'end' => $endDate ?? '',
                 'order_number' => $o['number'] ?? '',
                 'total' => $o['total'] ?? '0.00',
                 'customer_name' => ($billing['first_name'] ?? '').' '.($billing['last_name'] ?? ''),
@@ -376,15 +291,14 @@ class AdminWooCommerceController extends Controller
 
     private function findMeta($order, string $key): ?string
     {
-        $order = (array) $order;
         $meta = $order['meta_data'] ?? [];
 
-        if (is_array($meta)) {
-            foreach ($meta as $m) {
-                $m = (array) $m;
-                if (($m['key'] ?? null) === $key) {
-                    return $m['value'] ?? null;
-                }
+        foreach ($meta as $m) {
+            $metaKey = is_object($m) ? ($m->key ?? null) : ($m['key'] ?? null);
+            $metaValue = is_object($m) ? ($m->value ?? null) : ($m['value'] ?? null);
+
+            if ($metaKey === $key) {
+                return $metaValue;
             }
         }
 
@@ -557,6 +471,8 @@ class AdminWooCommerceController extends Controller
             ->values()
             ->toArray();
 
+        $contactId = $this->findMeta($order, '_contact_id');
+
         return [
             'id' => $order['id'] ?? 0,
             'number' => $order['number'] ?? '',
@@ -605,6 +521,12 @@ class AdminWooCommerceController extends Controller
                 'end_date' => $this->findMeta($order, '_subscription_end_date'),
             ],
             'contact_profile_pic_url' => $this->resolveContactProfilePic($order),
+            'is_pos' => $this->findMeta($order, '_wc_order_attribution_source_type') === 'pos',
+            'contact_id' => $contactId ? (int) $contactId : null,
+            'contact_name' => $contactId ? Contact::find((int) $contactId)?->name : null,
+            'sale_date' => $this->findMeta($order, '_sale_date'),
+            'tvp_terminal' => $this->findMeta($order, '_tvp_terminal'),
+            'tvp_vendedor' => $this->findMeta($order, '_tvp_vendedor'),
         ];
     }
 }

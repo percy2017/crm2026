@@ -1,5 +1,5 @@
-import { Head } from '@inertiajs/react';
-import { Copy, Edit, Code, Globe, Inbox, Phone, Plus, Trash2, User } from 'lucide-react';
+import { Head, router } from '@inertiajs/react';
+import { Archive, Copy, Edit, Code, Globe, Inbox, Phone, Plus, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import Heading from '@/components/heading';
@@ -24,6 +24,7 @@ type InboxData = {
     webhook_url: string | null;
     webhook_enabled: boolean;
     config: {
+        instanceId?: string;
         ownerJid?: string;
         profileName?: string;
         profilePicUrl?: string;
@@ -140,6 +141,23 @@ return;
                                                 >
                                                     {inbox.status}
                                                 </Badge>
+                                                {inbox.type === 'evolution' && inbox.config?.connectionStatus && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className={`text-[10px] ${
+                                                            inbox.config.connectionStatus === 'open' ? 'border-green-300 text-green-700' :
+                                                            inbox.config.connectionStatus === 'connecting' || inbox.config.connectionStatus === 'syncing' ? 'border-yellow-300 text-yellow-700' :
+                                                            'border-red-300 text-red-700'
+                                                        }`}
+                                                    >
+                                                        <span className={`mr-0.5 size-1.5 shrink-0 rounded-full ${
+                                                            inbox.config.connectionStatus === 'open' ? 'bg-green-500' :
+                                                            inbox.config.connectionStatus === 'connecting' || inbox.config.connectionStatus === 'syncing' ? 'bg-yellow-500' :
+                                                            'bg-red-500'
+                                                        }`} />
+                                                        {inbox.config.connectionStatus}
+                                                    </Badge>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -162,6 +180,38 @@ return;
                                         <Button
                                             variant="ghost"
                                             size="icon"
+                                            className="size-7 shrink-0"
+                                            onClick={() => {
+                                                fetch(`/admin/inboxes/backup/${inbox.id}`, {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        Accept: 'application/json',
+                                                        'X-Requested-With': 'XMLHttpRequest',
+                                                        'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '',
+                                                    },
+                                                })
+                                                    .then((res) => res.json())
+                                                    .then((data) => {
+                                                        if (data.error) {
+ toast.error(data.error);
+
+ return; 
+}
+
+                                                        if (data.url) {
+ window.location.href = data.url; 
+}
+
+                                                        toast.success('Backup listo');
+                                                    })
+                                                    .catch(() => toast.error('Error al generar backup'));
+                                            }}
+                                        >
+                                            <Archive className="size-3.5" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
                                             className="size-7 shrink-0 text-destructive"
                                             onClick={() => setDeleteId(inbox.id)}
                                         >
@@ -172,6 +222,23 @@ return;
                                 <CardContent className="space-y-1.5 text-sm">
                                     {inbox.type === 'evolution' && inbox.config && (
                                         <>
+                                            {inbox.config.instanceId && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(inbox.config.instanceId!);
+                                                        setCopiedId(inbox.id);
+                                                        setTimeout(() => setCopiedId(null), 2000);
+                                                    }}
+                                                    className="flex w-full items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    <Code className="size-3 shrink-0" />
+                                                    <span className="truncate font-mono">{inbox.config.instanceId}</span>
+                                                    {copiedId === inbox.id && (
+                                                        <span className="shrink-0 text-green-500 text-[10px]">Copied!</span>
+                                                    )}
+                                                </button>
+                                            )}
                                             {inbox.config.profileName && (
                                                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                                     <User className="size-3" />

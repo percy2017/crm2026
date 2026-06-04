@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     ShoppingBag,
     User,
@@ -8,12 +8,20 @@ import {
     TicketPercent,
     Package,
     Trash2,
+    Store,
+    Search,
+    Send,
+    MessageSquare,
+    Loader2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Sheet,
     SheetContent,
@@ -29,6 +37,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import type { WooOrder, WooPaginatedResponse } from '@/types';
 
@@ -87,13 +96,21 @@ export default function WooOrdersIndex() {
     const [totalResults, setTotalResults] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [status, setStatus] = useState('');
-    const perPage = 20;
 
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [order, setOrder] = useState<WooOrder | null>(null);
     const [loadingDetail, setLoadingDetail] = useState(false);
     const [picSrc, setPicSrc] = useState<string | undefined>();
+    const [perPage, setPerPage] = useState(10);
+    const [search, setSearch] = useState('');
+    const searchRef = useRef<HTMLInputElement>(null);
     const { confirm, dialogProps } = useConfirmDialog();
+    const [tab, setTab] = useState<'detail' | 'send'>('detail');
+    const [inboxes, setInboxes] = useState<Array<{ id: number; name: string; type: string }>>([]);
+    const [loadingInboxes, setLoadingInboxes] = useState(false);
+    const [selectedInbox, setSelectedInbox] = useState('');
+    const [messageText, setMessageText] = useState('');
+    const [sending, setSending] = useState(false);
 
     const fetchOrders = useCallback(() => {
         setLoading(true);
@@ -102,6 +119,10 @@ export default function WooOrdersIndex() {
         if (status) {
 params.set('status', status);
 }
+
+        if (search) {
+            params.set('search', search);
+        }
 
         fetch(`/admin/woocommerce/orders?${params}`, {
             headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -114,7 +135,7 @@ params.set('status', status);
             })
             .catch(() => {})
             .finally(() => setLoading(false));
-    }, [page, status]);
+    }, [page, status, perPage, search]);
 
     useEffect(() => {
         fetchOrders();
@@ -178,15 +199,100 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
         );
     };
 
+    useEffect(() => {
+        if (tab === 'send' && order?.contact_id) {
+            setLoadingInboxes(true);
+            setSelectedInbox('');
+            setMessageText('');
+            fetch('/admin/inboxes/list', {
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            })
+                .then((res) => {
+                    if (!res.ok) return [];
+                    return res.json() as Promise<Array<{ id: number; name: string; type: string }>>;
+                })
+                .then((list) => {
+                    setInboxes(list);
+
+                    if (list.length === 1) {
+                        setSelectedInbox(list[0].name);
+                    }
+                })
+                .finally(() => setLoadingInboxes(false));
+        }
+    }, [tab, order?.contact_id]);
+
+    const handleSend = async () => {
+        if (!selectedInbox || !messageText.trim() || !order?.billing?.phone) {
+return;
+}
+
+        setSending(true);
+
+        try {
+            const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
+
+            const res = await fetch(`/admin/entradas/${selectedInbox}/send`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    number: order.billing.phone,
+                    text: messageText.trim(),
+                }),
+            });
+
+            if (res.ok) {
+                toast.success('Mensaje enviado correctamente');
+                setMessageText('');
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error ?? 'Error al enviar mensaje');
+            }
+        } catch {
+            toast.error('Error de conexión al enviar mensaje');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const handleGoToChat = () => {
+        if (!selectedInbox || !order?.billing?.phone) {
+return;
+}
+
+        const phone = order.billing.phone;
+        const channelId = `${phone}@s.whatsapp.net`;
+        router.visit(`/admin/entradas/${selectedInbox}?channel_id=${encodeURIComponent(channelId)}`);
+    };
+
     return (
         <>
             <Head title="Orders — WooCommerce" />
 
             <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Filter by status:</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                        <Input
+                            ref={searchRef}
+                            placeholder="Buscar por #, cliente o teléfono..."
+                            value={search}
+                            onChange={(e) => {
+                                setSearch(e.target.value);
+                                setPage(1);
+                            }}
+                            className="w-64 pl-8 text-sm"
+                        />
+                    </div>
                     <select
-                        className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                        className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
                         value={status}
                         onChange={(e) => {
                             setStatus(e.target.value);
@@ -194,9 +300,26 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                         }}
                     >
                         {STATUS_OPTIONS.map((s) => (
-                            <option key={s} value={s}>{s || 'All Statuses'}</option>
+                            <option key={s} value={s}>{s || 'Todos los estados'}</option>
                         ))}
                     </select>
+                    <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>Mostrar</span>
+                        <select
+                            className="rounded border border-input bg-background px-2 py-1 text-sm"
+                            value={perPage}
+                            onChange={(e) => {
+                                setPerPage(Number(e.target.value));
+                                setPage(1);
+                            }}
+                        >
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                        </select>
+                        <span>registros</span>
+                    </div>
                 </div>
 
                 <div className="rounded-xl border">
@@ -206,19 +329,21 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                                 <TableHead>Order</TableHead>
                                 <TableHead>Date</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead>Origen</TableHead>
+                                <TableHead>Suscripción</TableHead>
+                                <TableHead>Contacto</TableHead>
+                                <TableHead>Teléfono</TableHead>
                                 <TableHead>Total</TableHead>
-                                <TableHead>Payment</TableHead>
-                                <TableHead>Customer</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center">Loading...</TableCell>
-                                </TableRow>
-                            ) : orders.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="text-center">No orders found.</TableCell>
+<TableCell colSpan={8} className="text-center">Loading...</TableCell>
+                            </TableRow>
+                        ) : orders.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={8} className="text-center">No orders found.</TableCell>
                                 </TableRow>
                             ) : (
                                 orders.map((order) => (
@@ -228,15 +353,47 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                                         onClick={() => handleRowClick(order.id)}
                                     >
                                         <TableCell className="font-medium">#{order.number}</TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">
+                                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                                             {order.date_created ? new Date(order.date_created).toLocaleDateString() : '—'}
                                         </TableCell>
                                         <TableCell><StatusBadge status={order.status} /></TableCell>
-                                        <TableCell>{order.currency} {order.total}</TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">
-                                            {order.payment_method_title || '—'}
+                                        <TableCell>
+                                            {order.is_pos ? (
+                                                <Badge variant="outline" className="border-blue-300 text-blue-700 dark:text-blue-400 whitespace-nowrap">
+                                                    <Store className="size-3 mr-1" /> Punto de Venta
+                                                </Badge>
+                                            ) : (
+                                                <span className="text-sm text-muted-foreground">Web</span>
+                                            )}
                                         </TableCell>
-                                        <TableCell className="text-sm">{customerName(order) || '—'}</TableCell>
+                                        <TableCell>
+                                            {order.subscription_meta?.title ? (
+                                                <Badge variant="secondary" className="whitespace-nowrap text-xs">
+                                                    {order.subscription_meta.title}
+                                                </Badge>
+                                            ) : (
+                                                <span className="text-sm text-muted-foreground">—</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                            {order.contact_name ? (
+                                                <div className="flex items-center gap-2">
+                                                    <Avatar className="size-6">
+                                                        <AvatarImage src={order.contact_profile_pic_url ?? undefined} />
+                                                        <AvatarFallback className="text-[10px]">
+                                                            {order.contact_name[0]}
+                                                        </AvatarFallback>
+                                                    </Avatar>
+                                                    <span className="truncate max-w-[120px]">{order.contact_name}</span>
+                                                </div>
+                                            ) : (
+                                                customerName(order) || '—'
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="tabular-nums">{order.currency} {order.total}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {order.billing?.phone || '—'}
+                                        </TableCell>
                                     </TableRow>
                                 ))
                             )}
@@ -244,17 +401,17 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                     </Table>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-3">
                     <span className="text-sm text-muted-foreground">
                         {totalResults > 0
-                            ? `Showing ${(page - 1) * perPage + 1} to ${Math.min(page * perPage, totalResults)} of ${totalResults}`
-                            : 'No entries'}
+                            ? `${(page - 1) * perPage + 1}–${Math.min(page * perPage, totalResults)} de ${totalResults}`
+                            : 'Sin resultados'}
                     </span>
                     <div className="flex items-center gap-1">
                         <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)} className="px-2">&laquo;</Button>
-                        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-                        <span className="px-2 text-sm">Page {page} of {totalPages || 1}</span>
-                        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+                        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
+                        <span className="px-2 text-sm">Página {page} de {totalPages || 1}</span>
+                        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
                         <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)} className="px-2">&raquo;</Button>
                     </div>
                 </div>
@@ -262,7 +419,7 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
 
             <Sheet open={selectedId !== null} onOpenChange={(o) => {
  if (!o) {
- setSelectedId(null); setOrder(null); setPicSrc(undefined); 
+ setSelectedId(null); setOrder(null); setPicSrc(undefined); setTab('detail'); setInboxes([]); setSelectedInbox(''); setMessageText('');
 } 
 }}>
                 <SheetContent side="right" className="w-full max-w-md sm:max-w-lg overflow-y-auto p-0">
@@ -289,14 +446,45 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                                                 </SheetDescription>
                                             </div>
                                         </div>
-                                        <Badge className={'shrink-0 ' + (STATUS_COLORS[order.status] ?? '')}>
-                                            {order.status}
-                                        </Badge>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {order.is_pos && (
+                                                <Badge variant="outline" className="border-blue-300 text-blue-700 dark:text-blue-400">
+                                                    <Store className="size-3 mr-1" /> POS
+                                                </Badge>
+                                            )}
+                                            <Badge className={'shrink-0 ' + (STATUS_COLORS[order.status] ?? '')}>
+                                                {order.status}
+                                            </Badge>
+                                        </div>
                                     </div>
                                 </SheetHeader>
                             </div>
 
-                            <div className="px-6 py-4 space-y-6">
+                            <div className="flex border-b">
+                                <button
+                                    className={`flex-1 px-4 py-2.5 text-sm font-medium text-center transition-colors ${
+                                        tab === 'detail'
+                                            ? 'border-b-2 border-primary text-primary'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                    onClick={() => setTab('detail')}
+                                >
+                                    Detalle
+                                </button>
+                                <button
+                                    className={`flex-1 px-4 py-2.5 text-sm font-medium text-center transition-colors ${
+                                        tab === 'send'
+                                            ? 'border-b-2 border-primary text-primary'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                    onClick={() => setTab('send')}
+                                >
+                                    Enviar Mensaje
+                                </button>
+                            </div>
+
+                            {tab === 'detail' && (
+                                <div className="px-6 py-4 space-y-6">
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="rounded-lg bg-muted/50 p-3">
                                         <p className="text-xs text-muted-foreground">Total</p>
@@ -358,8 +546,59 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                                                         </span>
                                                     </div>
                                                 )}
+                                                {order.sale_date && (
+                                                    <div>
+                                                        <span className="block">Venta</span>
+                                                        <span className="font-medium text-foreground">
+                                                            {new Date(order.sale_date).toLocaleDateString('es')}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
+                                    </div>
+                                )}
+
+                                {order.is_pos && order.tvp_terminal && (
+                                    <div className="border-t pt-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Store className="size-4 text-muted-foreground" />
+                                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Punto de Venta</p>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="rounded-lg bg-muted/30 p-2">
+                                                <span className="block text-muted-foreground">Terminal</span>
+                                                <span className="font-medium">{order.tvp_terminal}</span>
+                                            </div>
+                                            <div className="rounded-lg bg-muted/30 p-2">
+                                                <span className="block text-muted-foreground">Vendedor</span>
+                                                <span className="font-medium">{order.tvp_vendedor || '—'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {order.contact_id && order.contact_name && (
+                                    <div className="border-t pt-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <User className="size-4 text-muted-foreground" />
+                                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contacto CRM</p>
+                                        </div>
+                                        <Link
+                                            href={`/admin/contacts/${order.contact_id}/edit`}
+                                            className="flex items-center gap-3 rounded-lg bg-muted/30 p-3 hover:bg-muted/50 transition-colors"
+                                        >
+                                            <Avatar className="size-10 shrink-0">
+                                                <AvatarImage src={picSrc} />
+                                                <AvatarFallback className={avatarColor(order.contact_name) + ' text-white text-sm font-bold'}>
+                                                    {getInitials(order.contact_name)}
+                                                </AvatarFallback>
+                                            </Avatar>
+                                            <div className="space-y-0.5 text-sm min-w-0">
+                                                <p className="font-medium truncate">{order.contact_name}</p>
+                                                <p className="text-muted-foreground truncate">{order.billing?.phone || order.billing?.email}</p>
+                                            </div>
+                                        </Link>
                                     </div>
                                 )}
 
@@ -485,6 +724,90 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                                     </Button>
                                 </div>
                             </div>
+                            )}
+
+                            {tab === 'send' && (
+                                <div className="px-6 py-4 space-y-4">
+                                    {loadingInboxes ? (
+                                        <div className="flex items-center justify-center py-12">
+                                            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                                        </div>
+                                    ) : !order.contact_id ? (
+                                        <p className="text-sm text-muted-foreground text-center py-8">
+                                            Esta orden no tiene un contacto vinculado en el CRM.
+                                        </p>
+                                    ) : !order.billing?.phone ? (
+                                        <p className="text-sm text-muted-foreground text-center py-8">
+                                            Esta orden no tiene número de teléfono.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <div className="rounded-lg bg-muted/30 p-3">
+                                                <p className="text-xs text-muted-foreground">Contacto</p>
+                                                <p className="text-sm font-medium mt-0.5">{order.contact_name ?? customerName(order) ?? '—'}</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">{order.billing?.phone ?? '—'}</p>
+                                            </div>
+
+                                            {inboxes.length === 0 ? (
+                                                <p className="text-sm text-muted-foreground text-center py-8">
+                                                    No hay inboxes activos disponibles.
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    <div>
+                                                        <Label className="text-xs font-semibold text-muted-foreground">Inbox</Label>
+                                                        <select
+                                                            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                            value={selectedInbox}
+                                                            onChange={(e) => setSelectedInbox(e.target.value)}
+                                                        >
+                                                            <option value="">Seleccionar inbox...</option>
+                                                            {inboxes.map((inb) => (
+                                                                <option key={inb.id} value={inb.name}>
+                                                                    {inb.type === 'evolution' ? '📱 WhatsApp - ' : '🌐 Web - '}{inb.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+
+                                                    <div>
+                                                        <Label className="text-xs font-semibold text-muted-foreground">Mensaje</Label>
+                                                        <Textarea
+                                                            className="mt-1 min-h-[120px] resize-none"
+                                                            placeholder="Escribe tu mensaje aquí..."
+                                                            value={messageText}
+                                                            onChange={(e) => setMessageText(e.target.value)}
+                                                        />
+                                                    </div>
+
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            className="flex-1"
+                                                            disabled={!selectedInbox || !messageText.trim() || sending}
+                                                            onClick={handleSend}
+                                                        >
+                                                            {sending ? (
+                                                                <Loader2 className="size-4 mr-1.5 animate-spin" />
+                                                            ) : (
+                                                                <Send className="size-4 mr-1.5" />
+                                                            )}
+                                                            Enviar Mensaje
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            disabled={!selectedInbox}
+                                                            onClick={handleGoToChat}
+                                                        >
+                                                            <MessageSquare className="size-4 mr-1.5" />
+                                                            Ir al Chat
+                                                        </Button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </>
                     )}
                 </SheetContent>

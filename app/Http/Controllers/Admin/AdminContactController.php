@@ -8,6 +8,7 @@ use App\Http\Requests\Admin\StoreContactRequest;
 use App\Http\Requests\Admin\UpdateContactRequest;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\Inbox;
 use App\Models\Message;
 use App\Services\EvolutionApiService;
 use App\Services\ImageProxyService;
@@ -41,7 +42,7 @@ class AdminContactController extends Controller
         if ($contact->type === 'individual') {
             $groups = $contact->groupContacts()->get(['id', 'name']);
         } else {
-            $members = $contact->members()->get(['id', 'name', 'phone']);
+            $members = Contact::where('parent_id', $contact->id)->get(['id', 'name', 'phone', 'profile_pic_url']);
         }
 
         $phone = $contact->phone;
@@ -517,10 +518,29 @@ class AdminContactController extends Controller
             ->orderBy('country')
             ->pluck('country');
 
+        $members = [];
+
+        if ($contact->type === 'group') {
+            $members = Contact::where('parent_id', $contact->id)
+                ->get(['id', 'name', 'phone', 'profile_pic_url'])
+                ->map(fn ($m) => [
+                    'id' => $m->id,
+                    'name' => $m->name,
+                    'phone' => $m->phone,
+                    'profile_pic_url' => $m->profile_pic_url
+                        ? (str_starts_with($m->profile_pic_url, 'http')
+                            ? $m->profile_pic_url
+                            : asset('storage/'.$m->profile_pic_url))
+                        : null,
+                ]);
+        }
+
         return Inertia::render('admin/contacts/edit', [
             'contact' => $contact,
             'instances' => $instanceNames,
             'countries' => $countries,
+            'inboxes' => Inbox::where('status', 'active')->where('type', 'evolution')->orderBy('name')->get(['id', 'name']),
+            'members' => $members,
         ]);
     }
 
@@ -845,6 +865,141 @@ class AdminContactController extends Controller
         return response()->json([
             'imported' => $imported,
             'errors' => $errors,
+        ]);
+    }
+
+    public function syncGroup(Request $request, Contact $contact, EvolutionApiService $evolution, ImageProxyService $imageProxy): JsonResponse
+    {
+        if ($contact->type !== 'group') {
+            return response()->json(['error' => 'Contact is not a group'], 422);
+        }
+
+        $instance = $contact->instance ?? $request->input('instance');
+
+        if (! $instance || ! $contact->whatsapp_id) {
+            return response()->json(['error' => 'Group has no instance or whatsapp_id'], 422);
+        }
+
+        try {
+            $groupData = $evolution->findGroupInfos($instance, $contact->whatsapp_id);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['error' => 'Failed to fetch group info: '.$e->getMessage()], 500);
+        }
+
+        $contact->update([
+            'last_synced_at' => now(),
+            'name' => $groupData['subject'] ?? $contact->name,
+            'notes' => $groupData['desc'] ?? $contact->notes,
+            'participant_count' => count($groupData['participants'] ?? []),
+            'is_community' => $groupData['isCommunity'] ?? false,
+        ]);
+
+        $participants = $groupData['participants'] ?? [];
+
+        $syncedMembers = 0;
+        $skipped = 0;
+
+        foreach ($participants as $participant) {
+            $phoneJid = $participant['phoneNumber'] ?? null;
+
+            if (! $phoneJid) {
+                // Community groups have @lid without phoneNumber, skip
+                $skipped++;
+
+                continue;
+            }
+
+            $phone = explode('@', $phoneJid)[0];
+            $phone = preg_replace('/\D/', '', $phone);
+
+            if (strlen($phone) < 7 || strlen($phone) > 15) {
+                $skipped++;
+
+                continue;
+            }
+
+            $pname = $participant['name'] ?? $participant['pushName'] ?? null;
+
+            if ($pname && preg_match('/^\d+$/', $pname)) {
+                $pname = null;
+            }
+
+            $existing = Contact::where('phone', $phone)->first();
+
+            if ($existing) {
+                $groupJids = $existing->group_jids ?? [];
+
+                if (! in_array($contact->whatsapp_id, $groupJids)) {
+                    $groupJids[] = $contact->whatsapp_id;
+                    $existing->update(['group_jids' => $groupJids]);
+                }
+
+                $existing->update(['parent_id' => $contact->id]);
+            } else {
+                Contact::create([
+                    'name' => $pname,
+                    'phone' => $phone,
+                    'whatsapp_id' => $phoneJid,
+                    'type' => 'individual',
+                    'instance' => $instance,
+                    'group_jids' => [$contact->whatsapp_id],
+                    'parent_id' => $contact->id,
+                    'is_active' => true,
+                ]);
+            }
+
+            $syncedMembers++;
+        }
+
+        // Enrich: fetchProfile for contacts missing name or avatar
+        $enriched = 0;
+        $needy = Contact::where('parent_id', $contact->id)
+            ->where(fn ($q) => $q->whereNull('name')->orWhereNull('profile_pic_url'))
+            ->get(['id', 'phone']);
+
+        foreach ($needy as $member) {
+            try {
+                $profile = $evolution->fetchProfile($instance, $member->phone);
+
+                $update = [];
+
+                $profileName = $profile['name'] ?? null;
+
+                if ($profileName && ! preg_match('/^\d+$/', $profileName)) {
+                    $update['name'] = $profileName;
+                }
+
+                $picUrl = $profile['picture'] ?? null;
+
+                if ($picUrl) {
+                    try {
+                        $localPath = $imageProxy->download($picUrl);
+                        if ($localPath) {
+                            $update['profile_pic_url'] = $localPath;
+                        }
+                    } catch (\Exception $e) {
+                        report($e);
+                    }
+                }
+
+                if (! empty($update)) {
+                    Contact::where('id', $member->id)->update($update);
+                    $enriched++;
+                }
+            } catch (\Exception $e) {
+                report($e);
+            }
+        }
+
+        return response()->json([
+            'synced' => true,
+            'name' => $contact->name,
+            'participant_count' => count($participants),
+            'synced_members' => $syncedMembers,
+            'skipped' => $skipped,
+            'enriched' => $enriched,
         ]);
     }
 }

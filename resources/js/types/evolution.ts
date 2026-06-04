@@ -46,6 +46,7 @@ export type LocalConversation = {
 export type LocalMessage = {
     id: number;
     channel_id: string;
+    message_id: string | null;
     input_output: boolean;
     message_type: string | null;
     text: string | null;
@@ -54,6 +55,8 @@ export type LocalMessage = {
     sender_phone: string | null;
     sender_name: string | null;
     sender_avatar: string | null;
+    reaction_to: string | null;
+    status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | null;
 };
 
 export type EvolutionChat = {

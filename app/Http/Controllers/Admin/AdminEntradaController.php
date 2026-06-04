@@ -74,6 +74,7 @@ class AdminEntradaController extends Controller
                 return [
                     'id' => $msg->id,
                     'channel_id' => $msg->channel_id,
+                    'message_id' => $msg->message_id,
                     'input_output' => $msg->input_output,
                     'message_type' => $msg->message_type,
                     'text' => $msg->text,
@@ -82,6 +83,8 @@ class AdminEntradaController extends Controller
                         : null,
                     'created_at' => $msg->created_at,
                     'sender_phone' => $msg->sender_phone,
+                    'reaction_to' => $msg->reaction_to,
+                    'status' => $msg->status,
                     'sender_name' => $sender?->name,
                     'sender_avatar' => $sender?->profile_pic_url
                         ? (str_starts_with($sender->profile_pic_url, 'http')
@@ -94,8 +97,10 @@ class AdminEntradaController extends Controller
         return response()->json($messages);
     }
 
-    public function send(Request $request, string $instance, EvolutionApiService $evolution): JsonResponse
+public function send(Request $request, string $instance, EvolutionApiService $evolution): JsonResponse
     {
+        ini_set('memory_limit', '-1');
+
         $request->validate([
             'number' => 'required|string',
             'text' => 'nullable|string|max:4096',
@@ -111,62 +116,10 @@ class AdminEntradaController extends Controller
             $channelId = $request->input('channel_id')
                 ?? $number.'@s.whatsapp.net';
 
-            $inbox = Inbox::where('name', $instance)->first();
-
-            if ($inbox && $inbox->type === 'web') {
-                $message = Message::create([
-                    'channel_id' => $channelId,
-                    'instance' => $instance,
-                    'input_output' => false,
-                    'text' => $request->input('text'),
-                    'media_url' => $request->input('media_url'),
-                ]);
-
-                $contact = Contact::where('uuid', $number)->orWhere('phone', $number)->first();
-
-                broadcast(new MessageCreated(
-                    $instance,
-                    $channelId,
-                    [
-                        'id' => $message->id,
-                        'channel_id' => $message->channel_id,
-                        'input_output' => $message->input_output,
-                        'message_type' => $message->message_type,
-                        'text' => $message->text,
-                        'media_url' => $message->media_url
-                            ? asset('storage/'.$message->media_url)
-                            : null,
-                        'created_at' => $message->created_at,
-                        'sender_phone' => null,
-                        'sender_name' => null,
-                        'sender_avatar' => null,
-                    ],
-                    [
-                        'name' => $contact?->name,
-                        'phone' => $contact?->phone ?? $number,
-                        'profile_pic_url' => null,
-                    ],
-                ));
-
-                return response()->json([
-                    'message' => [
-                        'id' => $message->id,
-                        'channel_id' => $message->channel_id,
-                        'input_output' => $message->input_output,
-                        'message_type' => $message->message_type,
-                        'text' => $message->text,
-                        'media_url' => $message->media_url
-                            ? asset('storage/'.$message->media_url)
-                            : null,
-                        'created_at' => $message->created_at,
-                    ],
-                ]);
-            }
-
             $mediaUrl = $request->input('media_url');
 
             if ($mediaUrl) {
-                $publicUrl = asset('storage/'.$mediaUrl);
+                $publicUrl = asset('storage/'.rawurlencode($mediaUrl));
 
                 $result = $evolution->sendMedia(
                     $instance,
@@ -187,6 +140,7 @@ class AdminEntradaController extends Controller
                     'message_type' => $messageType,
                     'text' => $request->input('text'),
                     'media_url' => $mediaUrl,
+                    'status' => 'pending',
                 ]);
 
                 $keyId = $result['key']['id'] ?? null;
@@ -206,6 +160,7 @@ class AdminEntradaController extends Controller
                     'input_output' => false,
                     'message_type' => 'extendedTextMessage',
                     'text' => $request->input('text'),
+                    'status' => 'pending',
                 ]);
 
                 $keyId = $result['key']['id'] ?? null;
@@ -222,6 +177,7 @@ class AdminEntradaController extends Controller
                 [
                     'id' => $message->id,
                     'channel_id' => $message->channel_id,
+                    'message_id' => $message->message_id,
                     'input_output' => $message->input_output,
                     'message_type' => $message->message_type,
                     'text' => $message->text,
@@ -232,23 +188,21 @@ class AdminEntradaController extends Controller
                     'sender_phone' => null,
                     'sender_name' => null,
                     'sender_avatar' => null,
+                    'reaction_to' => null,
+                    'status' => $message->status,
                 ],
                 [
                     'name' => $contact?->name,
                     'phone' => $contact?->phone ?? $number,
-                    'profile_pic_url' => $contact?->profile_pic_url
-                        ? (str_starts_with($contact->profile_pic_url, 'http')
-                            ? $contact->profile_pic_url
-                            : asset('storage/'.$contact->profile_pic_url))
-                        : null,
+                    'profile_pic_url' => null,
                 ],
             ));
 
             return response()->json([
-                'evolution' => $result,
                 'message' => [
                     'id' => $message->id,
                     'channel_id' => $message->channel_id,
+                    'message_id' => $message->message_id,
                     'input_output' => $message->input_output,
                     'message_type' => $message->message_type,
                     'text' => $message->text,
@@ -256,16 +210,42 @@ class AdminEntradaController extends Controller
                         ? asset('storage/'.$message->media_url)
                         : null,
                     'created_at' => $message->created_at,
+                    'reaction_to' => null,
+                    'status' => $message->status,
                 ],
             ]);
         } catch (\Exception $e) {
             report($e);
 
-            return response()->json(['error' => $e->getMessage()], 422);
+return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
-    public function destroyConversation(string $instance, Conversation $conversation): JsonResponse
+    public function sendReaction(Request $request, string $instance, EvolutionApiService $evolution): JsonResponse
+    {
+        $request->validate([
+            'number' => 'required|string',
+            'message_id' => 'required|string',
+            'emoji' => 'required|string|max:10',
+        ]);
+
+        try {
+            $result = $evolution->sendReaction(
+                $instance,
+                $request->input('number'),
+                $request->input('emoji'),
+                $request->input('message_id')
+            );
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+            public function destroyConversation(string $instance, Conversation $conversation): JsonResponse
     {
         if ($conversation->instance !== $instance) {
             return response()->json(['error' => 'Conversation not found'], 404);

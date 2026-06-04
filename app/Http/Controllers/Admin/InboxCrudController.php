@@ -8,11 +8,13 @@ use App\Models\EvolutionWebhook;
 use App\Models\Inbox;
 use App\Models\Message;
 use App\Services\EvolutionApiService;
+use App\Services\InboxBackupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class InboxCrudController extends Controller
 {
@@ -23,6 +25,55 @@ class InboxCrudController extends Controller
         ]);
     }
 
+    public function listJson(): JsonResponse
+    {
+        return response()->json(
+            Inbox::where('status', 'active')->orderBy('name')->get(['id', 'name', 'type'])
+        );
+    }
+
+    public function backups(InboxBackupService $service): Response
+    {
+        return Inertia::render('admin/inboxes/backups', [
+            'backups' => $service->listBackups(),
+            'inboxes' => Inbox::where('status', 'active')->orderBy('name')->get(['id', 'name']),
+        ]);
+    }
+
+    public function backup(Inbox $inbox, InboxBackupService $service): JsonResponse
+    {
+        try {
+            $filename = $service->backup($inbox->name);
+
+            return response()->json([
+                'filename' => $filename,
+                'url' => route('admin.inboxes.backups.download', ['filename' => $filename]),
+            ]);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function downloadBackup(string $filename): BinaryFileResponse
+    {
+        $path = storage_path("app/backups/{$filename}");
+
+        if (! file_exists($path)) {
+            abort(404);
+        }
+
+        return response()->download($path);
+    }
+
+    public function deleteBackup(string $filename, InboxBackupService $service): JsonResponse
+    {
+        $service->deleteBackup($filename);
+
+        return response()->json(['deleted' => true]);
+    }
+
     public function create(EvolutionApiService $evolution): Response
     {
         $instances = [];
@@ -30,9 +81,9 @@ class InboxCrudController extends Controller
         try {
             $allInstances = $evolution->fetchInstances();
 
-            $existingNames = Inbox::where('type', 'evolution')->pluck('name')->toArray();
+            $existingActive = Inbox::where('type', 'evolution')->where('status', 'active')->pluck('name')->toArray();
 
-            $instances = array_values(array_filter($allInstances, fn ($inst) => ! in_array($inst['name'] ?? null, $existingNames)));
+            $instances = array_values(array_filter($allInstances, fn ($inst) => ! in_array($inst['name'] ?? null, $existingActive)));
         } catch (\Exception $e) {
             report($e);
         }
@@ -45,16 +96,12 @@ class InboxCrudController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name' => 'required|string|max:100|unique:inboxes,name',
+            'name' => 'required|string|max:100',
             'type' => 'required|string|in:evolution,web',
             'domain' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:7',
             'position' => 'nullable|in:left,right',
         ]);
-
-        if ($data['type'] === 'evolution' && Inbox::where('type', 'evolution')->where('name', $data['name'])->exists()) {
-            return response()->json(['error' => 'Ya existe un inbox para esta instancia de Evolution'], 422);
-        }
 
         if ($data['type'] === 'web') {
             $rawDomain = $request->input('domain', '');
@@ -75,11 +122,21 @@ class InboxCrudController extends Controller
             return response()->json(['inbox' => $inbox->fresh()], 201);
         }
 
-        $inbox = Inbox::create([
-            'name' => $data['name'],
-            'type' => 'evolution',
-            'status' => 'active',
-        ]);
+        $existing = Inbox::where('type', 'evolution')->where('name', $data['name'])->first();
+
+        if ($existing && $existing->status === 'active') {
+            return response()->json(['error' => 'Ya existe un inbox activo para esta instancia de Evolution'], 422);
+        }
+
+        if ($existing && $existing->status === 'inactive') {
+            $inbox = $existing;
+        } else {
+            $inbox = Inbox::create([
+                'name' => $data['name'],
+                'type' => 'evolution',
+                'status' => 'active',
+            ]);
+        }
 
         try {
             $evolution = app(EvolutionApiService::class);
@@ -106,9 +163,10 @@ class InboxCrudController extends Controller
 
             $url = url('/api/webhooks/evolution/'.$inbox->name);
 
-            $evolution->setWebhook($inbox->name, $url, true, ['MESSAGES_UPSERT']);
+            $evolution->setWebhookWithAllEvents($inbox->name, $url);
 
             $inbox->update([
+                'status' => 'active',
                 'config' => $config,
                 'webhook_url' => $url,
                 'webhook_enabled' => true,

@@ -13,7 +13,7 @@ export function renderMessageText(text: string): ReactNode[] {
                     href={part}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary underline"
+                    className="break-all text-primary underline"
                 >
                     {part}
                 </a>

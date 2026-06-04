@@ -4,7 +4,8 @@ import type {EmojiClickData} from 'emoji-picker-react';
 import Echo from 'laravel-echo';
 import { MessageSquare, Mic, Paperclip, Send, Search, Phone, Smile, X, ChevronDown } from 'lucide-react';
 import Pusher from 'pusher-js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import ChatSidebar from '@/components/entradas/chat-sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { chats as entradasChats, messages as entradasMessages, send as entradasSend } from '@/routes/admin/entradas';
+import { cn } from '@/lib/utils';
+import { chats as entradasChats, messages as entradasMessages, send as entradasSend, reaction as entradasReaction } from '@/routes/admin/entradas';
 import { upload as mediaUpload } from '@/routes/admin/media';
 import type { LocalConversation, LocalMessage } from '@/types';
 import { renderMessageText } from '@/utils/message';
@@ -84,8 +86,8 @@ async function uploadToMedios(file: File): Promise<string> {
 
 function detectMediaType(mimetype: string): string {
     if (mimetype.startsWith('image/')) {
-return 'image';
-}
+        return mimetype === 'image/webp' ? 'sticker' : 'image';
+    }
 
     if (mimetype.startsWith('video/')) {
 return 'video';
@@ -100,7 +102,7 @@ return 'audio';
 
 export default function EntradasChat({ instance }: { instance: string }) {
     const { inboxes } = usePage().props as unknown as {
-        inboxes: { id: number; name: string; type: string; webhook_enabled: boolean; config: { ownerJid?: string; profileName?: string; profilePicUrl?: string } | null }[];
+        inboxes: { id: number; name: string; type: string; webhook_enabled: boolean; config: { ownerJid?: string; profileName?: string; profilePicUrl?: string; connectionStatus?: string } | null }[];
     };
     const [conversations, setConversations] = useState<LocalConversation[]>([]);
     const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -119,6 +121,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const [deleteDialog, setDeleteDialog] = useState<LocalConversation | null>(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; msg: LocalMessage } | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const [isAtBottom, setIsAtBottom] = useState(true);
@@ -131,6 +134,10 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const pendingMsgRef = useRef<{ channel_id: string; tempId: number } | null>(null);
     const selectedConvRef = useRef(selectedConv);
     selectedConvRef.current = selectedConv;
+
+const [connectionStatus, setConnectionStatus] = useState<string | undefined>(
+    (inboxes ?? []).find((i) => i.name === instance)?.config?.connectionStatus ?? 'unknown',
+);
 
 const instInfo = (inboxes ?? []).find(
         (i) => i.name === instance,
@@ -148,6 +155,30 @@ const instInfo = (inboxes ?? []).find(
             .then((data) => {
                 const list = Array.isArray(data) ? data : [];
                 setConversations(list);
+
+                const targetChannelId = new URLSearchParams(window.location.search).get('channel_id');
+
+                if (targetChannelId) {
+                    const match = list.find((c: LocalConversation) => c.channel_id === targetChannelId);
+
+                    if (match) {
+                        setSelectedConv(match);
+                    } else {
+                        setSelectedConv({
+                            channel_id: targetChannelId,
+                            instance,
+                            inbox_id: null,
+                            contact_id: null,
+                            unread_count: 0,
+                            status: 'active',
+                            assigned_to: null,
+                            contact: { id: null, name: null, phone: null, profile_pic_url: null },
+                            last_message: null,
+                        } as LocalConversation);
+                    }
+
+                    window.history.replaceState({}, '', window.location.pathname);
+                }
             })
             .catch(() => {})
             .finally(() => setLoadingChats(false));
@@ -231,19 +262,6 @@ const instInfo = (inboxes ?? []).find(
                 });
             }
 
-            if (msg.input_output === true) {
-                window.dispatchEvent(new CustomEvent('notify:message', {
-                    detail: {
-                        channel_id: data.channel_id,
-                        instance,
-                        contact_name: data.contact.name,
-                        contact_avatar: data.contact.profile_pic_url,
-                        message_preview: msg.media_url ? '📎 Archivo' : (msg.text ?? '—'),
-                        created_at: msg.created_at,
-                    },
-                }));
-            }
-
             setConversations((prev) => {
                 const exists = prev.find((c) => c.channel_id === data.channel_id);
 
@@ -273,23 +291,57 @@ const instInfo = (inboxes ?? []).find(
                         });
                 }
 
-                fetch(entradasChats(instance).url, {
-                    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                })
-                    .then((res) => res.json())
-                    .then((data) => {
-                        if (Array.isArray(data)) {
-                            setConversations(data);
-                        }
-                    })
-                    .catch(() => {});
-
-                return prev;
+                return [
+                    {
+                        channel_id: data.channel_id,
+                        instance,
+                        inbox_id: (data as any).inbox_id ?? null,
+                        contact_id: (data as any).contact_id ?? null,
+                        unread_count: msg.input_output ? 1 : 0,
+                        status: 'active',
+                        assigned_to: null,
+                        contact: {
+                            id: (data as any).contact_id ?? null,
+                            name: (data as any).contact_name ?? data.contact.name,
+                            phone: (data as any).contact_phone ?? data.contact.phone,
+                            profile_pic_url: (data as any).contact_avatar ?? data.contact.profile_pic_url,
+                        },
+                        last_message: {
+                            text: msg.media_url ? '📎 Archivo' : msg.text,
+                            created_at: msg.created_at,
+                        },
+                    } as LocalConversation,
+                    ...prev,
+                ];
             });
+        });
+
+        channel.listen('.message.status.updated', (data: {
+            channel_id: string;
+            message_id: string;
+            status: string;
+        }) => {
+            if (data.channel_id === selectedConvRef.current?.channel_id) {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.message_id === data.message_id
+                            ? { ...m, status: data.status as LocalMessage['status'] }
+                            : m,
+                    ),
+                );
+            }
+        });
+
+        channel.listen('.inbox.status.updated', (data: {
+            connection_status: string;
+        }) => {
+            setConnectionStatus(data.connection_status);
         });
 
         return () => {
             channel.stopListening('.message.created');
+            channel.stopListening('.message.status.updated');
+            channel.stopListening('.inbox.status.updated');
             echo.leave(`entradas.${instance}`);
         };
     }, [instance]);
@@ -328,7 +380,12 @@ return;
 return true;
 }
 
-        return c.contact.name?.toLowerCase().includes(search.toLowerCase());
+        const q = search.toLowerCase();
+        const phoneFromJid = c.channel_id.split('@')[0];
+
+        return c.contact.name?.toLowerCase().includes(q)
+            || c.contact.phone?.includes(q)
+            || phoneFromJid.includes(q);
     });
 
     async function sendMessage(payload: {
@@ -345,15 +402,22 @@ return true;
         const tempId = Date.now();
         pendingMsgRef.current = { channel_id: payload.channel_id, tempId };
 
+        const tempMessageType = payload.media_url
+            ? (payload.media_type === 'audio' ? 'audioMessage'
+                : payload.media_type === 'image' ? 'imageMessage'
+                : payload.media_type === 'video' ? 'videoMessage'
+                : payload.media_type === 'sticker' ? 'stickerMessage'
+                : 'documentMessage')
+            : 'extendedTextMessage';
+
         setMessages((prev) => [
             ...prev,
             {
                 id: tempId,
                 channel_id: payload.channel_id,
+                message_id: null,
                 input_output: false,
-                message_type: payload.media_url
-                    ? (payload.media_type === 'audio' ? 'audioMessage' : payload.media_type === 'image' ? 'imageMessage' : 'documentMessage')
-                    : 'extendedTextMessage',
+                message_type: tempMessageType,
                 text: payload.text ?? null,
                 media_url: payload.media_url
                     ? `/storage/${payload.media_url}`
@@ -362,6 +426,8 @@ return true;
                 sender_phone: null,
                 sender_name: null,
                 sender_avatar: null,
+                reaction_to: null,
+                status: 'pending',
             },
         ]);
 
@@ -378,6 +444,9 @@ return true;
             });
 
             if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast.error(data.error ?? 'Error al enviar mensaje');
+
                 return;
             }
 
@@ -390,15 +459,48 @@ return true;
                 );
                 pendingMsgRef.current = null;
             }
-
+        } catch (e) {
+            toast.error('Error de conexión al enviar mensaje');
+        } finally {
             setInput('');
             setPickedFile(null);
-        } catch {
-            // ignore
-        } finally {
             setSending(false);
         }
     }
+
+    const sendReaction = useCallback(async (msg: LocalMessage, emoji: string) => {
+        if (!selectedConv || !msg.message_id) return;
+
+        const number = selectedConv.channel_id.split('@')[0];
+        const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
+
+        try {
+            const res = await fetch(entradasReaction(instance).url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrf,
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    number,
+                    message_id: msg.message_id,
+                    emoji,
+                }),
+            });
+
+            if (res.ok) {
+                toast.success(`Reacción ${emoji} enviada`);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error ?? 'Error al enviar reacción');
+            }
+        } catch {
+            toast.error('Error de conexión al enviar reacción');
+        }
+    }, [instance, selectedConv]);
 
     function handleSendText() {
         if (!input.trim() || !selectedConv) {
@@ -484,7 +586,7 @@ return true;
                 try {
                     const filename = await uploadToMedios(file);
 
-                    sendMessage({
+await sendMessage({
                         number: selectedConv.channel_id.split('@')[0],
                         channel_id: selectedConv.channel_id,
                         media_url: filename,
@@ -573,6 +675,22 @@ return true;
                         </div>
                     </div>
 
+                    {connectionStatus && connectionStatus !== 'open' && (
+                        <div className={`px-3 py-1.5 text-xs font-medium ${
+                            connectionStatus === 'stale'
+                                ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                                : connectionStatus === 'connecting'
+                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                        }`}>
+                            {connectionStatus === 'stale' && '⚠️ No se han recibido mensajes en los últimos minutos'}
+                            {connectionStatus === 'connecting' && '🔄 Reconectando...'}
+                            {connectionStatus === 'disconnected' && '🔌 Desconectado — escanea el código QR'}
+                            {connectionStatus === 'removed' && '❌ Instancia eliminada — crea una nueva'}
+                            {connectionStatus === 'closed' && '🔴 Conexión cerrada'}
+                        </div>
+                    )}
+
                     <div className="border-b p-2">
                         <div className="relative">
                             <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -580,8 +698,17 @@ return true;
                                 placeholder="Buscar..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className="h-8 pl-8 text-sm"
+                                className="h-8 pl-8 pr-8 text-sm"
                             />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearch('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="size-3.5" />
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -677,7 +804,7 @@ return true;
 
                             <div
                                 ref={messagesContainerRef}
-                                className={`flex-1 overflow-y-auto ${dragOver ? 'ring-2 ring-primary' : ''}`}
+                                className={`flex-1 overflow-y-auto overflow-x-hidden ${dragOver ? 'ring-2 ring-primary' : ''}`}
                                 onScroll={handleScroll}
                                 onDragOver={(e) => {
  e.preventDefault(); setDragOver(true); 
@@ -698,69 +825,106 @@ return true;
                                         <p className="text-sm">No hay mensajes</p>
                                     </div>
                                 ) : (
-                                    <div className="space-y-1.5 p-4">
-                                        {messages.map((msg) => {
-                                            const isMe = msg.input_output === false;
-                                            const isGroup = !!msg.sender_phone;
+<div className="space-y-1.5 p-4">
+                                        {(() => {
+                                            const reactionMap: Record<string, string> = {};
+                                            const filteredMessages: typeof messages = [];
 
-                                            return (
-                                                <div
-                                                    key={msg.id}
-                                                    className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
-                                                >
-                                                    <div className="max-w-[75%]">
-                                                        {isGroup && (
-                                                            <div className="mb-1 flex items-start gap-1.5">
-                                                                <Avatar className="mt-0.5 size-5">
-                                                                    <AvatarImage src={msg.sender_avatar ?? undefined} />
-                                                                    <AvatarFallback className="text-[10px]">
-                                                                        {(msg.sender_name ?? msg.sender_phone ?? '?').charAt(0).toUpperCase()}
-                                                                    </AvatarFallback>
-                                                                </Avatar>
-                                                                <div className="leading-tight">
-                                                                    <p className="text-sm font-medium text-foreground">
-                                                                        {msg.sender_name || msg.sender_phone || 'Desconocido'}
-                                                                    </p>
-                                                                    <p className="text-[10px] text-muted-foreground/60">
-                                                                        {msg.sender_phone ?? ''}@s.whatsapp.net
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                        <div className="rounded-2xl bg-muted px-4 py-2 text-sm">
-                                                            {msg.media_url && msg.message_type === 'audioMessage' ? (
-                                                                <audio src={msg.media_url} controls className="h-10 w-48" />
-                                                            ) : msg.media_url && (msg.message_type === 'imageMessage' || msg.message_type === 'stickerMessage') ? (
-                                                                <img src={msg.media_url} alt="" className="max-h-36 max-w-56 rounded-lg object-contain cursor-pointer hover:opacity-80" loading="lazy" onClick={() => setLightboxSrc(msg.media_url)} />
-                                                            ) : msg.media_url && msg.message_type === 'videoMessage' ? (
-                                                                <video src={msg.media_url} controls className="max-h-36 max-w-56 rounded-lg" />
-                                                            ) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
-                                                                <div className="flex flex-col gap-1">
-                                                                    <iframe src={msg.media_url} className="w-56 h-32 rounded-lg border" />
-                                                                    {msg.text && (
-                                                                        <p className="whitespace-pre-wrap break-words text-xs">
-                                                                            {renderMessageText(msg.text)}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                            ) : msg.media_url ? (
-                                                                <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="underline">
-                                                                    📎 {msg.text || 'Ver archivo'}
-                                                                </a>
-                                                            ) : null}
-                                                            {msg.text && !msg.media_url?.endsWith('.pdf') && (
-                                                                <p className="whitespace-pre-wrap break-words">
-                                                                    {renderMessageText(msg.text)}
+                                            for (const msg of messages) {
+                                                if (msg.message_type === 'reactionMessage' && msg.reaction_to) {
+                                                    reactionMap[msg.reaction_to] = msg.text ?? '👍';
+                                                } else {
+                                                    filteredMessages.push(msg);
+                                                }
+                                            }
+
+                                            return filteredMessages.map((msg) => {
+                                                const isMe = msg.input_output === false;
+                                                const isGroup = !!msg.sender_phone;
+                                                const reaction = reactionMap[msg.message_id ?? ''];
+
+                                                return (
+                                                    <div
+                                                        key={msg.id}
+                                                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                                                        onContextMenu={(e) => {
+                                                            e.preventDefault();
+                                                            if (msg.message_id && selectedConv) {
+                                                                setContextMenu({ x: e.clientX, y: e.clientY, msg });
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className="min-w-0 max-w-[75%]">
+                                                            {isGroup && (
+                                                                <div className="mb-1 flex items-start gap-1.5">
+                                                                    <Avatar className="mt-0.5 size-5">
+                                                                        <AvatarImage src={msg.sender_avatar ?? undefined} />
+                                                                        <AvatarFallback className="text-[10px]">
+                                                                            {(msg.sender_name ?? msg.sender_phone ?? '?').charAt(0).toUpperCase()}
+                                                                        </AvatarFallback>
+                                                                    </Avatar>
+                                                                    <div className="leading-tight">
+<p className="truncate text-sm font-medium text-foreground">
+                                                                    {msg.sender_name || msg.sender_phone || 'Desconocido'}
                                                                 </p>
+                                                                        <p className="text-[10px] text-muted-foreground/60">
+                                                                            {msg.sender_phone ?? ''}@s.whatsapp.net
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
                                                             )}
-                                                            <p className="mt-0.5 text-right text-[10px] text-muted-foreground">
-                                                                {formatDatetime(msg.created_at)}
-                                                            </p>
+                                                            <div className="relative rounded-2xl bg-muted px-4 py-2 text-sm">
+                                                                {msg.media_url && msg.message_type === 'audioMessage' ? (
+                                                                    <audio src={msg.media_url} controls className="h-10 w-48" />
+                                                                ) : msg.media_url && (msg.message_type === 'imageMessage' || msg.message_type === 'stickerMessage') ? (
+                                                                    <img src={msg.media_url} alt="" className="max-h-36 max-w-56 rounded-lg object-contain cursor-pointer hover:opacity-80" loading="lazy" onClick={() => setLightboxSrc(msg.media_url)} />
+                                                                ) : msg.media_url && msg.message_type === 'videoMessage' ? (
+                                                                    <video src={msg.media_url} controls className="max-h-36 max-w-56 rounded-lg" />
+                                                                ) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <iframe src={msg.media_url} className="w-56 h-32 rounded-lg border" />
+                                                                        {msg.text && (
+                                                                            <p className="whitespace-pre-wrap break-all text-xs">
+                                                                                {renderMessageText(msg.text)}
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
+                                                                ) : msg.media_url ? (
+                                                                    <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="underline">
+                                                                        📎 {msg.text || 'Ver archivo'}
+                                                                    </a>
+                                                                ) : null}
+                                                                {msg.text && !msg.media_url?.endsWith('.pdf') && (
+                                                                    <p className="whitespace-pre-wrap break-all">
+                                                                        {renderMessageText(msg.text)}
+                                                                    </p>
+                                                                )}
+                                                                <p className="mt-0.5 flex items-center justify-end gap-1 text-right text-[10px] text-muted-foreground">
+                                                                    {formatDatetime(msg.created_at)}
+                                                                    {isMe && msg.status && (
+                                                                        <span className="inline-flex items-center">
+                                                                            {msg.status === 'pending' && <span className="text-muted-foreground/50">⌛</span>}
+                                                                            {msg.status === 'sent' && <span className="text-muted-foreground">✓</span>}
+                                                                            {msg.status === 'delivered' && <span className="text-muted-foreground">✓✓</span>}
+                                                                            {msg.status === 'read' && <span className="text-blue-500">✓✓</span>}
+                                                                            {msg.status === 'failed' && <span className="text-red-500">✗</span>}
+                                                                        </span>
+                                                                    )}
+                                                                </p>
+                                                            </div>
+                                                            {reaction && (
+                                                                <div className={cn(
+                                                                    '-mt-2 flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs shadow-xs',
+                                                                    isMe ? 'mr-3 justify-end' : 'ml-3 justify-start',
+                                                                )}>
+                                                                    <span>{reaction}</span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
+                                                );
+                                            });
+                                        })()}
                                         <div ref={messagesEndRef} />
                                     </div>
                                 )}
@@ -803,6 +967,13 @@ return true;
                                                     onError={(e) => {
                                                         (e.currentTarget as HTMLImageElement).style.display = 'none';
                                                     }}
+                                                />
+                                            )}
+                                            {pickedFile.type.startsWith('video/') && (
+                                                <video
+                                                    src={URL.createObjectURL(pickedFile)}
+                                                    className="size-10 shrink-0 rounded object-cover"
+                                                    muted
                                                 />
                                             )}
                                             <span className="min-w-0 flex-1 truncate text-sm">
@@ -906,14 +1077,20 @@ return true;
                                                 onKeyDown={handleKeyDown}
                                                 onPaste={(e) => {
                                                     const items = e.clipboardData?.items;
-                                                    if (!items) return;
+
+                                                    if (!items) {
+return;
+}
+
                                                     for (const item of items) {
-                                                        if (item.type.startsWith('image/')) {
+                                                        if (item.type.startsWith('image/') || item.type.startsWith('video/') || item.type.startsWith('audio/')) {
                                                             e.preventDefault();
                                                             const file = item.getAsFile();
+
                                                             if (file && selectedConv) {
                                                                 setPickedFile(file);
                                                             }
+
                                                             return;
                                                         }
                                                     }
@@ -1005,6 +1182,34 @@ return true;
                     )}
                 </DialogContent>
             </Dialog>
+
+            {contextMenu && (
+                <>
+                    <div
+                        className="fixed inset-0 z-50"
+                        onClick={() => setContextMenu(null)}
+                        onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+                    />
+                    <div
+                        className="fixed z-50 flex items-center gap-1 rounded-xl border bg-card p-1.5 shadow-xl"
+                        style={{ left: contextMenu.x, top: contextMenu.y }}
+                    >
+                        {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                            <button
+                                key={emoji}
+                                type="button"
+                                className="flex size-9 items-center justify-center rounded-lg text-xl hover:bg-muted transition-colors"
+                                onClick={() => {
+                                    sendReaction(contextMenu.msg, emoji);
+                                    setContextMenu(null);
+                                }}
+                            >
+                                {emoji}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
         </>
     );
 }

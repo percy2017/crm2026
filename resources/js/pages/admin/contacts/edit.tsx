@@ -1,7 +1,10 @@
 import { Head, Link, router } from '@inertiajs/react';
+import { RefreshCw, Users } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import Heading from '@/components/heading';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -11,9 +14,11 @@ import { index as adminContactsIndex } from '@/routes/admin/contacts';
 import { update as adminContactsUpdate } from '@/routes/admin/contacts';
 import type { Contact } from '@/types';
 
-export default function ContactsEdit({ contact, instances, countries }: { contact: Contact; instances: string[]; countries: string[] }) {
+export default function ContactsEdit({ contact, instances, countries, inboxes, members }: { contact: Contact; instances: string[]; countries: string[]; inboxes: { id: number; name: string }[]; members: { id: number; name: string | null; phone: string | null; profile_pic_url: string | null }[] }) {
     const [mode, setMode] = useState<'manual' | 'evolution'>('manual');
     const [saving, setSaving] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [syncInbox, setSyncInbox] = useState(contact.instance ?? '');
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     const [values, setValues] = useState({
@@ -128,67 +133,183 @@ export default function ContactsEdit({ contact, instances, countries }: { contac
                     }
                 />
 
-                {isGroup ? (
-                    <div className="max-w-lg space-y-4 rounded-lg border p-4">
-                        <div className="flex items-center gap-3">
-                            {picPreview ? (
-                                <img src={picPreview} alt={contact.name ?? 'Group'} className="size-16 rounded-full border object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                                <div className="flex size-16 items-center justify-center rounded-full bg-muted text-2xl text-muted-foreground">
-                                    {(contact.name ?? 'G')[0]}
+{isGroup ? (
+                    <>
+                        <div className="flex gap-1 self-start rounded-lg border bg-muted p-1">
+                            <button
+                                type="button"
+                                className={cn(
+                                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                                    mode === 'manual' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                                onClick={() => setMode('manual')}
+                            >
+                                Manual
+                            </button>
+                            <button
+                                type="button"
+                                className={cn(
+                                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                                    mode === 'evolution' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                                onClick={() => setMode('evolution')}
+                            >
+                                Via Evolution
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
+                            {mode === 'evolution' && (
+                                <div className="rounded-lg border p-4 space-y-3">
+                                    <h3 className="text-sm font-medium">Sync via Evolution API</h3>
+                                    <div className="flex items-center gap-3">
+                                        {picPreview ? (
+                                            <img src={picPreview} alt={contact.name ?? 'Group'} className="size-12 rounded-full border object-cover" referrerPolicy="no-referrer" />
+                                        ) : (
+                                            <div className="flex size-12 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground">
+                                                {(contact.name ?? 'G')[0]}
+                                            </div>
+                                        )}
+                                        <div>
+                                            <p className="text-sm font-semibold">{contact.name ?? '—'}</p>
+                                            <p className="text-xs text-muted-foreground">{contact.instance ?? '—'} • {contact.participant_count ?? 0} members</p>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Instancia</label>
+                                        <select
+                                            value={syncInbox}
+                                            onChange={(e) => setSyncInbox(e.target.value)}
+                                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
+                                        >
+                                            <option value="">Seleccionar...</option>
+                                            {inboxes.map((inb) => (
+                                                <option key={inb.id} value={inb.name}>{inb.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                    <Button
+                                        type="button"
+                                        variant="default"
+                                        disabled={!syncInbox || syncing}
+                                        onClick={async () => {
+                                            setSyncing(true);
+
+                                            try {
+                                                const res = await fetch(`/admin/contacts/${contact.id}/sync-group`, {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                        Accept: 'application/json',
+                                                        'X-Requested-With': 'XMLHttpRequest',
+                                                        'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '',
+                                                    },
+                                                    body: JSON.stringify({ instance: syncInbox }),
+                                                });
+                                                const data = await res.json();
+
+                                                if (data.error) {
+ toast.error(data.error);
+
+ return; 
+}
+
+                                                toast.success(`Sincronizado: ${data.synced_members} miembros, ${data.enriched ?? 0} enriquecidos, ${data.skipped} omitidos`);
+                                                router.reload();
+                                            } catch {
+                                                toast.error('Error al sincronizar grupo');
+                                            } finally {
+                                                setSyncing(false);
+                                            }
+                                        }}
+                                    >
+                                        <RefreshCw className={`size-3.5 mr-1 ${syncing ? 'animate-spin' : ''}`} />
+                                        {syncing ? 'Sincronizando...' : 'Sync Group'}
+                                    </Button>
+                                    </div>
                                 </div>
                             )}
-                            <div>
-                                <h3 className="text-lg font-semibold">{contact.name}</h3>
-                                <p className="text-sm text-muted-foreground">{contact.instance} • {contact.participant_count} members</p>
+
+                            {mode === 'manual' && (
+                                <div className="rounded-lg border p-4 space-y-4">
+                                    <h3 className="text-sm font-medium">Group Info</h3>
+                                    <div className="flex items-center gap-3">
+                                        {picPreview ? (
+                                            <img src={picPreview} alt={contact.name ?? 'Group'} className="size-12 rounded-full border object-cover" referrerPolicy="no-referrer" />
+                                        ) : (
+                                            <div className="flex size-12 items-center justify-center rounded-full bg-muted text-lg text-muted-foreground">
+                                                {(contact.name ?? 'G')[0]}
+                                            </div>
+                                        )}
+                                        <div>
+                                            <p className="text-sm font-semibold">{contact.name ?? '—'}</p>
+                                            <p className="text-xs text-muted-foreground">{contact.instance ?? '—'} • {contact.participant_count ?? 0} members</p>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="name">Name</Label>
+                                        <Input
+                                            id="name"
+                                            value={values.name}
+                                            onChange={handleChange('name')}
+                                            placeholder="Group name"
+                                        />
+                                        {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="notes">Description</Label>
+                                        <textarea
+                                            id="notes"
+                                            value={values.notes}
+                                            onChange={handleChange('notes')}
+                                            placeholder="Group description..."
+                                            rows={3}
+                                            className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex gap-2">
+                                {mode === 'manual' && (
+                                    <Button type="submit" disabled={saving}>
+                                        {saving ? 'Saving...' : 'Save Changes'}
+                                    </Button>
+                                )}
+                                <Link href={adminContactsIndex().url}>
+                                    <Button type="button" variant="outline">Back to Contacts</Button>
+                                </Link>
+                            </div>
+                        </form>
+
+                        {members.length > 0 && (
+                        <div className="max-w-lg space-y-3">
+                            <div className="flex items-center gap-2">
+                                <Users className="size-4 text-muted-foreground" />
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                    Members ({members.length})
+                                </p>
+                            </div>
+                            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border">
+                                {members.map((m) => (
+                                    <div key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50">
+                                        <Avatar className="size-7 shrink-0">
+                                            <AvatarImage src={m.profile_pic_url ?? undefined} />
+                                            <AvatarFallback className="text-[10px]">
+                                                {(m.name ?? '?')[0]}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0 flex-1 text-sm">
+                                            <p className="truncate font-medium">{m.name ?? '—'}</p>
+                                            <p className="truncate text-xs text-muted-foreground">{m.phone}</p>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div>
-                                <span className="text-muted-foreground">JID:</span>
-                                <p className="font-mono">{contact.whatsapp_id}</p>
-                            </div>
-                            {contact.country && (
-                                <div>
-                                    <span className="text-muted-foreground">Country:</span>
-                                    <p className="font-medium">{countryFlag(contact.country)} {contact.country.toUpperCase()}</p>
-                                </div>
-                            )}
-                            {contact.owner && (
-                                <div>
-                                    <span className="text-muted-foreground">Owner:</span>
-                                    <p>{contact.owner}</p>
-                                </div>
-                            )}
-                            {contact.is_community && (
-                                <div>
-                                    <span className="text-muted-foreground">Community:</span>
-                                    <p>Yes</p>
-                                </div>
-                            )}
-                            {contact.last_synced_at && (
-                                <div>
-                                    <span className="text-muted-foreground">Last synced:</span>
-                                    <p>{new Date(contact.last_synced_at).toLocaleString()}</p>
-                                </div>
-                            )}
-                            {contact.is_business && (
-                                <div>
-                                    <span className="text-muted-foreground">WhatsApp:</span>
-                                    <p><span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Business</span></p>
-                                </div>
-                            )}
-                        </div>
-                        {contact.notes && (
-                            <div className="text-sm">
-                                <span className="text-muted-foreground">Description:</span>
-                                <p className="mt-1 whitespace-pre-wrap">{contact.notes}</p>
-                            </div>
-                        )}
-                        <Link href={adminContactsIndex().url}>
-                            <Button type="button" variant="outline">Back to Contacts</Button>
-                        </Link>
-                    </div>
+                    )}
+                    </>
                 ) : (
                     <> <div className="flex gap-1 self-start rounded-lg border bg-muted p-1">
                         <button

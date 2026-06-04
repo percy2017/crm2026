@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Message extends Model
 {
@@ -10,11 +11,13 @@ class Message extends Model
         'channel_id',
         'instance',
         'message_id',
+        'reaction_to',
         'input_output',
         'message_type',
         'text',
         'media_url',
         'sender_phone',
+        'status',
     ];
 
     protected function casts(): array
@@ -22,5 +25,11 @@ class Message extends Model
         return [
             'input_output' => 'boolean',
         ];
+    }
+
+    public function reactedMessage(): BelongsTo
+    {
+        return $this->belongsTo(Message::class, 'reaction_to', 'message_id')
+            ->where('channel_id', $this->channel_id);
     }
 }

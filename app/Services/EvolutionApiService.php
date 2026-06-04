@@ -29,10 +29,10 @@ class EvolutionApiService
         $url = $inbox->getConfigValue('serverUrl');
         $key = $inbox->getConfigValue('apikey');
 
-        if ($url && $key) {
+        if ($key) {
             $service = clone $this;
-            $service->serverUrl = rtrim($url, '/');
             $service->apiKey = $key;
+            $service->serverUrl = $url ? rtrim($url, '/') : $this->serverUrl;
 
             return $service;
         }
@@ -186,21 +186,38 @@ class EvolutionApiService
             'mediatype' => $mediaType,
             'mimetype' => $mimetype,
             'media' => $mediaUrl,
+            'caption' => $caption ?? '',
+            'fileName' => $fileName ?? basename(rawurldecode($mediaUrl)),
         ];
-
-        if ($caption) {
-            $payload['caption'] = $caption;
-        }
-
-        if ($fileName) {
-            $payload['fileName'] = $fileName;
-        }
 
         $response = Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
             ->acceptJson()
             ->timeout(120)
             ->post("/message/sendMedia/{$instance}", $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function sendReaction(string $instance, string $number, string $reactionEmoji, string $originalMessageId): array
+    {
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(30)
+            ->post("/message/sendReaction/{$instance}", [
+                'number' => $number,
+                'reactionMessage' => [
+                    'key' => ['id' => $originalMessageId],
+                    'text' => $reactionEmoji,
+                ],
+            ]);
 
         if ($response->failed()) {
             throw new RuntimeException(
@@ -219,6 +236,25 @@ class EvolutionApiService
             ->timeout(120)
             ->get("/group/fetchAllGroups/{$instance}", [
                 'getParticipants' => 'true',
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function findGroupInfos(string $instance, string $groupJid): array
+    {
+        $response = Http::baseUrl($this->serverUrl)
+            ->withHeader('apikey', $this->apiKey)
+            ->acceptJson()
+            ->timeout(30)
+            ->get("/group/findGroupInfos/{$instance}", [
+                'groupJid' => $groupJid,
             ]);
 
         if ($response->failed()) {
@@ -269,6 +305,21 @@ class EvolutionApiService
         }
 
         return $response->json() ?? [];
+    }
+
+    public function setWebhookWithAllEvents(string $instance, string $url): array
+    {
+        return $this->setWebhook($instance, $url, true, [
+            'MESSAGES_UPSERT',
+            'SEND_MESSAGE',
+            'MESSAGES_UPDATE',
+            'CONNECTION_UPDATE',
+            'QRCODE_UPDATED',
+            'LOGOUT_INSTANCE',
+            'REMOVE_INSTANCE',
+            'APPLICATION_STARTUP',
+            'CALL',
+        ]);
     }
 
     public function fetchWebhookStatus(string $instance): ?array

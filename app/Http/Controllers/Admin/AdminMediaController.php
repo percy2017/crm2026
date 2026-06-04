@@ -18,6 +18,93 @@ class AdminMediaController extends Controller
         return Inertia::render('admin/media/index');
     }
 
+    public function stats(): JsonResponse
+    {
+        $isDocument = fn (string $mime) => in_array($mime, [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain', 'text/csv', 'text/html', 'text/richtext',
+        ]);
+
+        $isArchive = fn (string $mime) => in_array($mime, [
+            'application/zip', 'application/x-rar-compressed',
+            'application/gzip', 'application/x-gzip', 'application/x-tar',
+            'application/x-7z-compressed',
+        ]);
+
+        $files = collect(Storage::disk('public')->files())
+            ->filter(fn (string $path) => $path !== '.gitignore')
+            ->map(fn (string $path) => [
+                'size' => Storage::disk('public')->size($path),
+                'mime' => Storage::disk('public')->mimeType($path),
+                'last_modified' => Storage::disk('public')->lastModified($path),
+            ]);
+
+        $totalFiles = $files->count();
+        $totalSize = $files->sum('size');
+
+        $byType = [
+            'image' => 0, 'video' => 0, 'audio' => 0,
+            'document' => 0, 'archive' => 0, 'other' => 0,
+        ];
+
+        foreach ($files as $file) {
+            $mime = $file['mime'];
+            $type = match (true) {
+                str_starts_with($mime, 'image/') => 'image',
+                str_starts_with($mime, 'video/') => 'video',
+                str_starts_with($mime, 'audio/') => 'audio',
+                $isDocument($mime) => 'document',
+                $isArchive($mime) => 'archive',
+                default => 'other',
+            };
+            $byType[$type]++;
+        }
+
+        $bySize = ['tiny' => 0, 'small' => 0, 'medium' => 0, 'large' => 0];
+
+        foreach ($files as $file) {
+            $size = $file['size'];
+            $bucket = match (true) {
+                $size < 100 * 1024 => 'tiny',
+                $size < 1024 * 1024 => 'small',
+                $size < 10 * 1024 * 1024 => 'medium',
+                default => 'large',
+            };
+            $bySize[$bucket]++;
+        }
+
+        $now = now();
+        $recent = ['today' => 0, 'week' => 0, 'month' => 0];
+
+        foreach ($files as $file) {
+            $ts = $file['last_modified'];
+            $diff = $now->diffInDays($now->copy()->setTimestamp($ts));
+            if ($diff === 0) {
+                $recent['today']++;
+            }
+            if ($diff <= 7) {
+                $recent['week']++;
+            }
+            if ($diff <= 30) {
+                $recent['month']++;
+            }
+        }
+
+        return response()->json([
+            'total_files' => $totalFiles,
+            'total_size' => $totalSize,
+            'by_type' => $byType,
+            'by_size' => $bySize,
+            'recent' => $recent,
+        ]);
+    }
+
     public function list(Request $request): JsonResponse
     {
         $perPage = min((int) $request->input('per_page', 20), 100);

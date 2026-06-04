@@ -1,4 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
+import { X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
@@ -276,15 +277,28 @@ const totalPages = Math.ceil(filtered / pageLength); // checkbox + visible + typ
 
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                        placeholder="Search..."
-                        value={search}
-                        onChange={(e) => {
-                            setSearch(e.target.value);
-                            setPage(1);
-                        }}
-                        className="max-w-xs"
-                    />
+                    <div className="relative">
+                        <Input
+                            placeholder="Search..."
+                            value={search}
+                            onChange={(e) => {
+                                setSearch(e.target.value);
+                                setPage(1);
+                            }}
+                            className="max-w-xs pr-8"
+                        />
+                        {search && (
+                            <button
+                                type="button"
+                                onClick={() => {
+ setSearch(''); setPage(1); 
+}}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                                <X className="size-3.5" />
+                            </button>
+                        )}
+                    </div>
                     <select
                         className="rounded-md border border-input bg-background px-2 py-1 text-sm"
                         value={filters.country}

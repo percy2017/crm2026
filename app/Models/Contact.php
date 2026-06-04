@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use libphonenumber\PhoneNumberUtil;
 
 class Contact extends Model
@@ -25,6 +27,7 @@ class Contact extends Model
         'type',
         'instance',
         'group_jids',
+        'parent_id',
         'participant_count',
         'is_community',
         'owner',
@@ -48,6 +51,16 @@ class Contact extends Model
             'first_seen_at' => 'datetime',
             'last_seen_at' => 'datetime',
         ];
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_id');
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_id');
     }
 
     public function scopeIndividuals(Builder $query): Builder

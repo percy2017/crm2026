@@ -64,6 +64,12 @@ export type WooOrder = {
         end_date: string | null;
     };
     contact_profile_pic_url?: string | null;
+    is_pos?: boolean;
+    contact_id?: number | null;
+    contact_name?: string | null;
+    sale_date?: string | null;
+    tvp_terminal?: string | null;
+    tvp_vendedor?: string | null;
 };
 
 export type WooAddress = {
