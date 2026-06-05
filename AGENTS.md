@@ -304,3 +304,86 @@ WooCommerce uses HPOS. Data lives in custom tables (not `wp_posts`):
 - `resources/js/pages/admin/woocommerce/subscriptions/calendar.tsx` — subscription calendar
 - `resources/js/components/woocommerce/pos/` — 6 POS components (product-grid, product-card, cart-panel, variation-selector, customer-search, recent-orders-bar)
 - `resources/js/types/woocommerce.ts` — WooCommerce type definitions
+
+---
+
+## Module: Link Previews (Previsualización de Enlaces)
+
+### Architecture
+
+Cron-driven link previews con Chromium (Playwright) + Evolution API para grupos WhatsApp. Sin polling, sin fetch desde el frontend.
+
+- **Worker**: `scripts/link-preview-worker.cjs` — script Node.js que abre Chromium headless, navega al URL con User-Agent móvil, espera 3s a que JS cargue, extrae OG tags (`og:image`, `og:title`, `og:description`) y devuelve JSON.
+- **Cron**: `app:generate-link-previews` — se ejecuta cada minuto via el módulo Cron Jobs. Busca mensajes sin `link_preview`, extrae URLs únicas, ejecuta worker por cada URL única, guarda resultado en `messages.link_preview`.
+- **Caché**: los datos se guardan en `messages.link_preview` (columna JSON). No se usa tabla separada. Una vez guardado, nunca se refetchea.
+- **Frontend**: `<LinkPreview>` renderiza solo si `msg.link_preview` existe. Si no, no muestra nada.
+
+### Data flow
+
+1. Llega mensaje con URL → `link_preview = null` → no se ve nada
+2. Cron `app:generate-link-previews` cada minuto:
+   - Busca mensajes con `link_preview IS NULL` y `text` con URLs
+   - Agrupa por URL única (hash MD5)
+   - Si algún mensaje con esa URL ya tiene preview → copia a todos (caché)
+   - Si no → ejecuta worker/API **una sola vez** por URL única
+3. Se guarda `link_preview` en `messages` (incluso si es null)
+4. Al recargar el chat, `AdminEntradaController::messages()` devuelve `link_preview` en el JSON → frontend renderiza `PreviewCard`
+
+### Image handling (WhatsApp groups only)
+
+- **Evolution API** `inviteInfo()` → extrae groupId del invite code
+- **Evolution API** `findGroupInfos()` → obtiene `pictureUrl` real del grupo
+- Imagen se **descarga a `storage/app/public/`** con nombre `md5(url).jpg`
+- Se sirve via `asset('storage/...')` — **0 requests a WhatsApp CDN** después de la descarga
+- Otras redes (Instagram, TikTok, YouTube, etc.) mantienen la URL CDN original (no se descargan)
+
+### Link Preview data structure (JSON en `messages.link_preview`)
+
+```json
+{
+  "url": "https://...",
+  "title": "Invitación a grupo de WhatsApp",
+  "description": "Nombre del grupo o descripción OG",
+  "image": "abc123.jpg" // o URL CDN para Instagram/TikTok/YouTube
+}
+```
+
+### Frontend
+
+- `resources/js/components/entradas/link-preview.tsx` — `PreviewCard` component
+  - Si `savedPreview.image` o `savedPreview.title` existe → renderiza card con imagen/título/descripción/ícono
+  - Si `savedPreview.image = null` y es `chat.whatsapp.com` → muestra fallback "Invitación a grupo de WhatsApp"
+  - Si `savedPreview = null` → no renderiza nada
+- `resources/js/components/entradas/chat/chat-message-bubble.tsx` — pasa `msg.link_preview` como `savedPreview`
+- `resources/js/types/evolution.ts` — `LocalMessage` incluye `link_preview`
+
+### Backend endpoints
+
+- `GET /api/link-preview?url=...&message_id=...` — ejecuta Chromium y guarda en DB (ya no se usa desde frontend, solo por si acaso)
+- `AdminEntradaController::messages()` — devuelve `link_preview` en la lista de mensajes
+- `AdminEntradaController::send()` + webhooks → broadcast `MessageCreated` incluye `link_preview`
+- `EvolutionApiService::findGroupInfos()`, `EvolutionApiService::inviteInfo()` — nuevos métodos
+
+### Cron jobs
+
+- `app:generate-link-previews` — registrado en `cron_jobs` table, frecuencia `everyMinute`, timeout 120s. Visible/admin desde `/admin/cron-jobs`.
+
+### Key files
+
+- `scripts/link-preview-worker.cjs` — Chromium worker (User-Agent móvil, 20s timeout, 3s wait)
+- `app/Console/Commands/GenerateLinkPreviews.php` — cron command
+- `app/Http/Controllers/Api/LinkPreviewController.php` — API endpoint
+- `app/Http/Controllers/Admin/AdminEntradaController.php` — incluye `link_preview` en responses
+- `app/Services/EvolutionApiService.php` — `inviteInfo()`, `findGroupInfos()`
+- `app/Events/MessageCreated.php` — broadcast incluye `link_preview`
+- `resources/js/components/entradas/link-preview.tsx` — PreviewCard component
+- `resources/js/components/entradas/chat/chat-message-bubble.tsx` — pasa `savedPreview`
+- `database/migrations/2026_06_05_005031_add_link_preview_to_messages.php` — columna JSON
+
+### Known issues
+
+- **WhatsApp groups**: Chromium no puede obtener OG tags (HTTP 429). Se usa Evolution API (`inviteInfo` → `findGroupInfos`) para obtener `pictureUrl`. Solo funciona si la instancia de Evolution es miembro del grupo.
+- **TikTok/Instagram**: a veces no devuelven `og:image` incluso con Chromium móvil. El preview se ve sin imagen.
+- **YouTube**: Chromium funciona bien, devuelve thumbnail.
+- **Google Maps**: Chromium devuelve el mapa estático (con API key de Google). OpenStreetMap (staticmap.openstreetmap.de) está caído.
+- **Imágenes descargadas**: solo para WhatsApp groups. Instagram/TikTok/YouTube mantienen URL CDN original.

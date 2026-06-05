@@ -69,7 +69,7 @@ class AdminCronJobController extends Controller
 
         $data = $request->only(['name', 'command', 'frequency']);
         $data['arguments'] = $request->input('arguments') ? json_decode($request->input('arguments'), true) : null;
-        $data['timeout'] = $request->input('timeout', 0);
+        $data['timeout'] = $request->input('timeout', 60);
         $data['max_runs'] = $request->input('max_runs');
         $data['is_active'] = $request->boolean('is_active', true);
 
@@ -92,7 +92,7 @@ class AdminCronJobController extends Controller
 
         $data = $request->only(['name', 'command', 'frequency']);
         $data['arguments'] = $request->input('arguments') ? json_decode($request->input('arguments'), true) : null;
-        $data['timeout'] = $request->input('timeout', 0);
+        $data['timeout'] = $request->input('timeout', 60);
         $data['max_runs'] = $request->input('max_runs');
         $data['is_active'] = $request->boolean('is_active', true);
 
@@ -121,12 +121,13 @@ class AdminCronJobController extends Controller
         $start = microtime(true);
         $startedAt = now();
 
+        set_time_limit(($cronJob->timeout ?? 60) + 5);
+
         $params = $cronJob->arguments ?? [];
         $exitCode = Artisan::call($cronJob->command, $params);
         $output = Artisan::output();
 
         $duration = (int) ((microtime(true) - $start) * 1000);
-
         $result = $exitCode === 0 ? 'success' : 'failed';
 
         CronJobLog::create([
@@ -154,12 +155,10 @@ class AdminCronJobController extends Controller
 
     public function logs(CronJob $cronJob): JsonResponse
     {
-        $limit = request()->input('limit', 50);
-
         return response()->json(
             $cronJob->logs()
                 ->orderBy('started_at', 'desc')
-                ->limit($limit)
+                ->limit(50)
                 ->get()
                 ->map(fn (CronJobLog $log) => [
                     'id' => $log->id,

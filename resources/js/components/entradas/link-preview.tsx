@@ -1,5 +1,10 @@
-import { ExternalLink, Globe, MapPin, Music2, Video } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Globe, Music2, Video, type LucideIcon } from 'lucide-react';
+
+const URL_REGEX = /https?:\/\/[^\s<]+/g;
+
+export function extractUrls(text: string): string[] {
+    return text.match(URL_REGEX) ?? [];
+}
 
 type LinkPreviewData = {
     url: string;
@@ -8,37 +13,7 @@ type LinkPreviewData = {
     image: string | null;
 };
 
-const URL_REGEX = /https?:\/\/[^\s<]+/g;
-
-export function extractUrls(text: string): string[] {
-    return text.match(URL_REGEX) ?? [];
-}
-
-function useLinkPreview(url: string | null) {
-    const [data, setData] = useState<LinkPreviewData | null>(null);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (!url) {
-            return;
-        }
-
-        setLoading(true);
-        setData(null);
-
-        fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
-            headers: { Accept: 'application/json' },
-        })
-            .then((res) => res.json() as Promise<LinkPreviewData>)
-            .then(setData)
-            .catch(() => setData({ url, title: null, description: null, image: null }))
-            .finally(() => setLoading(false));
-    }, [url]);
-
-    return { data, loading };
-}
-
-function hostname(url: string): string {
+function getHost(url: string): string {
     try {
         return new URL(url).hostname.replace(/^www\./, '');
     } catch {
@@ -46,16 +21,14 @@ function hostname(url: string): string {
     }
 }
 
-const PLATFORM_ICONS: Record<string, typeof Globe> = {
+const PLATFORM_ICONS: Record<string, LucideIcon> = {
     'facebook.com': Globe,
     'instagram.com': Globe,
     'tiktok.com': Music2,
     'vm.tiktok.com': Music2,
     'youtube.com': Video,
     'youtu.be': Video,
-    'goo.gl': MapPin,
-    'maps.google.com': MapPin,
-    'google.com': MapPin,
+    'chat.whatsapp.com': Globe,
 };
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -65,44 +38,18 @@ const PLATFORM_LABELS: Record<string, string> = {
     'instagram.com': 'Instagram',
     'tiktok.com': 'TikTok',
     'vm.tiktok.com': 'TikTok',
-    'goo.gl': 'Google Maps',
-    'maps.google.com': 'Google Maps',
-    'google.com': 'Google Maps',
+    'chat.whatsapp.com': 'WhatsApp',
 };
 
-function getPlatformInfo(url: string): { Icon: typeof Globe; label: string } {
-    const host = hostname(url);
-
-    if (host.includes('goo.gl') || host.includes('google.com/maps') || host === 'maps.google.com') {
-        return { Icon: MapPin, label: 'Google Maps' };
-    }
-
+function getPlatformInfo(url: string): { Icon: LucideIcon; label: string } {
+    const host = getHost(url);
     const Icon = PLATFORM_ICONS[host] ?? Globe;
+    const label = PLATFORM_LABELS[host] ?? host;
 
-    return { Icon, label: PLATFORM_LABELS[host] ?? host };
+    return { Icon, label };
 }
 
-export function LinkPreview({ text }: { text: string }) {
-    const urls = extractUrls(text);
-    const firstUrl = urls[0] ?? null;
-    const { data, loading } = useLinkPreview(firstUrl);
-
-    if (!data && !loading) {
-        return null;
-    }
-
-    if (loading || !data) {
-        return (
-            <div className="mt-1 animate-pulse overflow-hidden rounded-lg border bg-muted/30">
-                <div className="aspect-[2/1] w-full bg-muted" />
-                <div className="flex flex-col gap-2 p-3">
-                    <div className="h-3 w-3/4 rounded bg-muted" />
-                    <div className="h-2 w-1/2 rounded bg-muted" />
-                </div>
-            </div>
-        );
-    }
-
+function PreviewCard({ data }: { data: LinkPreviewData }) {
     const { Icon, label } = getPlatformInfo(data.url);
 
     return (
@@ -143,4 +90,16 @@ export function LinkPreview({ text }: { text: string }) {
             </div>
         </a>
     );
+}
+
+export function LinkPreview({ savedPreview }: { savedPreview: LinkPreviewData | null }) {
+    if (savedPreview?.image || savedPreview?.title) {
+        return <PreviewCard data={savedPreview} />;
+    }
+
+    if (savedPreview && getHost(savedPreview.url) === 'chat.whatsapp.com') {
+        return <PreviewCard data={{ ...savedPreview, title: 'Invitación a grupo de WhatsApp' }} />;
+    }
+
+    return null;
 }

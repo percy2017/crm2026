@@ -6,8 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class CronJobLog extends Model
 {
-    public $timestamps = false;
-
     protected $fillable = [
         'cron_job_id',
         'started_at',

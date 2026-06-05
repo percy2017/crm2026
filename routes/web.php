@@ -94,6 +94,7 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
         Route::post('/{instance}/send', [AdminEntradaController::class, 'send'])->name('send');
         Route::post('/{instance}/reaction', [AdminEntradaController::class, 'sendReaction'])->name('reaction');
         Route::delete('/{instance}/conversations/{conversation}', [AdminEntradaController::class, 'destroyConversation'])->name('conversations.destroy');
+        Route::delete('/{instance}/messages/{message}', [AdminEntradaController::class, 'destroyMessage'])->name('messages.destroy');
     });
 
     Route::get('/media', [AdminMediaController::class, 'index'])->name('media.index');

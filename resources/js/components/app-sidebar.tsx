@@ -155,12 +155,12 @@ export function AppSidebar() {
                         </span>
                     ),
                     href: `/admin/entradas/${inst.name}`,
-                    icon: Zap,
+                    // icon: Zap,
                 })),
                 ...webInboxes.map((w) => ({
                     title: w.name,
                     href: `/admin/entradas/${w.name}`,
-                    icon: Globe,
+                    // icon: Globe,
                 })),
             ],
         },
@@ -181,7 +181,7 @@ export function AppSidebar() {
             children: [
                 { title: 'All Inboxes', href: '/admin/inboxes' },
                 { title: 'Create Inbox', href: '/admin/inboxes/create' },
-                { title: 'Backups', href: '/admin/inboxes/backups', icon: Archive },
+                { title: 'Backups', href: '/admin/inboxes/backups'},
             ],
         },
         {
@@ -221,7 +221,7 @@ export function AppSidebar() {
             icon: Settings,
             children: [
                 { title: 'Users', href: adminUsersIndex() },
-                { title: 'Roles', href: '/admin/roles', icon: ShieldCheck },
+                { title: 'Roles', href: '/admin/roles' },
                 { title: 'Reverb Monitor', href: '/reverb-monitor' },
             ],
         },

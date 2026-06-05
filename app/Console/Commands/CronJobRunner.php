@@ -4,9 +4,8 @@ namespace App\Console\Commands;
 
 use App\Models\CronJob;
 use App\Models\CronJobLog;
-use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Artisan;
+use Symfony\Component\Process\Process;
 
 class CronJobRunner extends Command
 {
@@ -28,13 +27,25 @@ class CronJobRunner extends Command
                 continue;
             }
 
+            $this->line("Running: {$job->command}");
+
             $start = microtime(true);
             $startedAt = now();
 
-            $params = $job->arguments ?? [];
-            $exitCode = Artisan::call($job->command, $params);
-            $output = Artisan::output();
+            $args = ['php8.4', 'artisan', $job->command];
+            if ($job->arguments) {
+                foreach ($job->arguments as $key => $val) {
+                    $args[] = "--{$key}={$val}";
+                }
+            }
 
+            $process = new Process($args);
+            $process->setWorkingDirectory(base_path());
+            $process->setTimeout($job->timeout ?? 60);
+            $process->run();
+
+            $output = $process->getOutput() . "\n" . $process->getErrorOutput();
+            $exitCode = $process->getExitCode();
             $duration = (int) ((microtime(true) - $start) * 1000);
             $result = $exitCode === 0 ? 'success' : 'failed';
 

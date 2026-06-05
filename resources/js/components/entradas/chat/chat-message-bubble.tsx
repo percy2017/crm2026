@@ -1,4 +1,4 @@
-import { FileText, MessageSquare } from 'lucide-react';
+import { Copy, Forward, ImageUp, SmilePlus, Trash2 } from 'lucide-react';
 import { LinkPreview } from '@/components/entradas/link-preview';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -32,8 +32,12 @@ interface ChatMessageBubbleProps {
     isGroup: boolean;
     reaction: string | undefined;
     msgSearch: string;
-    onContextMenu: (e: React.MouseEvent, msg: LocalMessage) => void;
     onLightbox: (url: string) => void;
+    onReact: (msg: LocalMessage, e: React.MouseEvent) => void;
+    onForward: (msg: LocalMessage) => void;
+    onCopy: (msg: LocalMessage) => void;
+    onDelete: (msg: LocalMessage) => void;
+    onGeneratePreview?: (msg: LocalMessage) => void;
 }
 
 export function ChatMessageBubble({
@@ -42,20 +46,15 @@ export function ChatMessageBubble({
     isGroup,
     reaction,
     msgSearch,
-    onContextMenu,
     onLightbox,
+    onReact,
+    onForward,
+    onCopy,
+    onDelete,
+    onGeneratePreview,
 }: ChatMessageBubbleProps) {
     return (
-        <div
-            className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
-            onContextMenu={(e) => {
-                e.preventDefault();
-
-                if (msg.message_id) {
-                    onContextMenu(e, msg);
-                }
-            }}
-        >
+        <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
             <div className="min-w-0 max-w-[75%]">
                 {msgSearch && msg.text && msg.text.toLowerCase().includes(msgSearch.toLowerCase()) && (
                     <div className="mb-1 text-xs font-medium text-primary">
@@ -108,7 +107,6 @@ export function ChatMessageBubble({
                     ) : msg.media_url && msg.media_url.endsWith('.pdf') ? (
                         <div className="flex flex-col gap-1 cursor-pointer" onClick={() => onLightbox(msg.media_url!)}>
                             <div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-3">
-                                <FileText className="size-6 shrink-0 text-muted-foreground" />
                                 <span className="truncate text-sm font-medium">
                                     {msg.text || 'Ver PDF'}
                                 </span>
@@ -130,10 +128,61 @@ export function ChatMessageBubble({
                         </p>
                     )}
                     {msg.text && !msg.media_url && (
-                        <LinkPreview text={msg.text} />
+                        <LinkPreview savedPreview={msg.link_preview} />
                     )}
-                    <p className="mt-0.5 flex items-center justify-end gap-1 text-right text-[10px] text-muted-foreground">
-                        {formatDatetime(msg.created_at)}
+                    <div className="mt-1 flex items-center justify-end gap-1 text-right text-[11px] text-muted-foreground">
+                        <span>{formatDatetime(msg.created_at)}</span>
+                        <span className="text-muted-foreground/40">#{msg.id}</span>
+                        {msg.message_id && (
+                            <>
+                                {onGeneratePreview && msg.text && /https?:\/\/[^\s<]+/.test(msg.text) && (
+                                    <button
+                                        type="button"
+                                        className="flex size-5 items-center justify-center rounded hover:bg-muted-foreground/20"
+                                        onClick={() => onGeneratePreview(msg)}
+                                        title="Generar preview"
+                                    >
+                                        <ImageUp className="size-3.5" />
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    className="flex size-5 items-center justify-center rounded hover:bg-muted-foreground/20"
+                                    onClick={(e) => onReact(msg, e)}
+                                    title="Reaccionar"
+                                >
+                                    {reaction ? (
+                                        <span className="text-xs">{reaction}</span>
+                                    ) : (
+                                        <SmilePlus className="size-3.5" />
+                                    )}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="flex size-5 items-center justify-center rounded hover:bg-muted-foreground/20"
+                                    onClick={() => onForward(msg)}
+                                    title="Reenviar"
+                                >
+                                    <Forward className="size-3.5" />
+                                </button>
+                                <button
+                                    type="button"
+                                    className="flex size-5 items-center justify-center rounded hover:bg-muted-foreground/20"
+                                    onClick={() => onCopy(msg)}
+                                    title="Copiar texto"
+                                >
+                                    <Copy className="size-3.5" />
+                                </button>
+                                <button
+                                    type="button"
+                                    className="flex size-5 items-center justify-center rounded hover:bg-red-200/30"
+                                    onClick={() => onDelete(msg)}
+                                    title="Eliminar"
+                                >
+                                    <Trash2 className="size-3.5" />
+                                </button>
+                            </>
+                        )}
                         {isMe && msg.status && (
                             <span className="inline-flex items-center">
                                 {msg.status === 'pending' && <span className="text-muted-foreground/50">⌛</span>}
@@ -143,9 +192,9 @@ export function ChatMessageBubble({
                                 {msg.status === 'failed' && <span className="text-red-500">✗</span>}
                             </span>
                         )}
-                    </p>
+                    </div>
                 </div>
-                {reaction && (
+                {reaction && msg.message_id && (
                     <div className={cn(
                         'relative z-10 -mt-2 flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs shadow-xs',
                         isMe ? 'mr-3 justify-end' : 'ml-3 justify-start',

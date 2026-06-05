@@ -24,6 +24,7 @@ class Message extends Model
     {
         return [
             'input_output' => 'boolean',
+            'link_preview' => 'array',
         ];
     }
 

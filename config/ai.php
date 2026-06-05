@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'default' => env('AI_AGENT_PROVIDER', 'ollama'),
+    'default' => env('AI_PROVIDER', 'ollama'),
     'default_for_images' => 'gemini',
     'default_for_audio' => 'openai',
     'default_for_transcription' => 'openai',
@@ -31,8 +31,8 @@ return [
     */
 
     'agent' => [
-        'provider' => env('AI_AGENT_PROVIDER', 'ollama'),
-        'model' => env('AI_AGENT_MODEL', 'llama3.1:8b'),
+        'provider' => env('AI_PROVIDER', 'ollama'),
+        'model' => env('AI_MODEL', 'llama3.1:8b'),
         'instructions' => env('AI_AGENT_INSTRUCTIONS', 'Eres un asistente inteligente del CRM. Ayudas a los usuarios con consultas sobre el sistema. Responde en español, claro y conciso. Si no sabes algo, dilo amablemente.'),
     ],
 
@@ -130,11 +130,11 @@ return [
 
         'ollama' => [
             'driver' => 'ollama',
-            'key' => env('OLLAMA_API_KEY', ''),
-            'url' => env('OLLAMA_URL', 'http://localhost:11434'),
+            'key' => env('IA_KEY', ''),
+            'url' => env('AI_URL', 'http://localhost:11434'),
             'models' => [
                 'text' => [
-                    'default' => env('AI_AGENT_MODEL', 'llama3.1:8b'),
+                    'default' => env('AI_MODEL', 'llama3.1:8b'),
                 ],
             ],
         ],

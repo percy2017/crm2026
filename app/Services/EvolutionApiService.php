@@ -256,6 +256,21 @@ class EvolutionApiService
         return $response->json() ?? [];
     }
 
+    public function inviteInfo(string $instance, string $inviteCode): array
+    {
+        $response = $this->client()->get("/group/inviteInfo/{$instance}", [
+                'inviteCode' => $inviteCode,
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                "Evolution API error: {$response->status()} - {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
     public function getBase64FromMediaMessage(string $instance, string $messageId, string $remoteJid): array
     {
         $response = $this->client()->post("/chat/getBase64FromMediaMessage/{$instance}", [

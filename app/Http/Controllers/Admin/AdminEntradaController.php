@@ -99,6 +99,15 @@ class AdminEntradaController extends Controller
                     'sender_phone' => $msg->sender_phone,
                     'reaction_to' => $msg->reaction_to,
                     'status' => $msg->status,
+                    'link_preview' => $msg->link_preview
+                        ? array_merge($msg->link_preview, [
+                            'image' => $msg->link_preview['image']
+                                ? (str_starts_with($msg->link_preview['image'], 'http')
+                                    ? $msg->link_preview['image']
+                                    : asset('storage/'.$msg->link_preview['image']))
+                                : null,
+                        ])
+                        : null,
                     'sender_name' => $sender?->name,
                     'sender_avatar' => $sender?->profile_pic_url
                         ? (str_starts_with($sender->profile_pic_url, 'http')
@@ -208,6 +217,7 @@ class AdminEntradaController extends Controller
                     'sender_avatar' => null,
                     'reaction_to' => null,
                     'status' => $message->status,
+                    'link_preview' => $message->link_preview,
                 ],
                 [
                     'name' => $contact->name,
@@ -299,6 +309,7 @@ class AdminEntradaController extends Controller
                     'sender_avatar' => null,
                     'reaction_to' => $message->reaction_to,
                     'status' => $message->status,
+                    'link_preview' => $message->link_preview,
                 ],
                 [
                     'name' => $contact->name,
@@ -323,6 +334,17 @@ class AdminEntradaController extends Controller
 
         $conversation->messages()->delete();
         $conversation->delete();
+
+        return response()->json(['deleted' => true]);
+    }
+
+    public function destroyMessage(string $instance, Message $message): JsonResponse
+    {
+        if ($message->instance !== $instance) {
+            return response()->json(['error' => 'Message not found'], 404);
+        }
+
+        $message->delete();
 
         return response()->json(['deleted' => true]);
     }

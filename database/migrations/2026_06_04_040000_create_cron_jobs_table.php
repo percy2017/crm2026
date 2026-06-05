@@ -15,7 +15,7 @@ return new class extends Migration
             $table->json('arguments')->nullable();
             $table->string('frequency', 50)->default('everyMinute');
             $table->boolean('is_active')->default(true);
-            $table->integer('timeout')->default(0);
+            $table->integer('timeout')->default(60);
             $table->integer('max_runs')->nullable();
             $table->integer('run_count')->default(0);
             $table->timestamp('last_run_at')->nullable();
@@ -32,6 +32,7 @@ return new class extends Migration
             $table->string('result', 20);
             $table->text('output')->nullable();
             $table->integer('duration_ms')->nullable();
+            $table->timestamps();
         });
     }
 

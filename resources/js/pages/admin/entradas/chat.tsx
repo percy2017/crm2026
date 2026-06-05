@@ -1,6 +1,6 @@
 import { Head, usePage } from '@inertiajs/react';
 import Echo from 'laravel-echo';
-import { ChevronDown, MessageSquare, X } from 'lucide-react';
+import { ChevronDown, MessageSquare, Search, X } from 'lucide-react';
 import Pusher from 'pusher-js';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { chats as entradasChats, messages as entradasMessages, send as entradasSend, reaction as entradasReaction } from '@/routes/admin/entradas';
 import { upload as mediaUpload } from '@/routes/admin/media';
@@ -86,8 +87,14 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const [deleteDialog, setDeleteDialog] = useState<LocalConversation | null>(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; msg: LocalMessage } | null>(null);
     const [quickReplyQuery, setQuickReplyQuery] = useState<string | null>(null);
+    const [forwardMsg, setForwardMsg] = useState<LocalMessage | null>(null);
+    const [showForward, setShowForward] = useState(false);
+    const [generatingPreview, setGeneratingPreview] = useState<number | null>(null);
+    const [forwardSearch, setForwardSearch] = useState('');
+    const [forwarding, setForwarding] = useState(false);
+    const [reactTarget, setReactTarget] = useState<{ msg: LocalMessage; rect: DOMRect } | null>(null);
+    const [deleteMsg, setDeleteMsg] = useState<LocalMessage | null>(null);
     const [msgSearch, setMsgSearch] = useState('');
     const [aiGenerating, setAiGenerating] = useState(false);
     const [aiDraft, setAiDraft] = useState<string | null>(null);
@@ -103,7 +110,10 @@ export default function EntradasChat({ instance }: { instance: string }) {
     const echoRef = useRef<Echo<'reverb'> | null>(null);
     const pendingMsgRef = useRef<{ channel_id: string; tempId: number } | null>(null);
     const selectedConvRef = useRef(selectedConv);
-    selectedConvRef.current = selectedConv;
+
+    useEffect(() => {
+        selectedConvRef.current = selectedConv;
+    }, [selectedConv]);
 
     const [connectionStatus, setConnectionStatus] = useState<string | undefined>(
         (inboxes ?? []).find((i) => i.name === instance)?.config?.connectionStatus ?? 'unknown',
@@ -118,6 +128,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
 
     useEffect(() => {
         const url = entradasChats(instance).url;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoadingChats(true);
 
         fetch(url, {
@@ -162,6 +173,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
         }
 
         const url = entradasMessages(instance).url;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoadingMessages(true);
 
         fetch(`${url}?channel_id=${encodeURIComponent(selectedConv.channel_id)}`, {
@@ -327,6 +339,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
         if (isAtBottom) {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         } else {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setUnreadCount((c) => c + 1);
         }
     }, [messages]);
@@ -474,7 +487,7 @@ return;
                 );
                 pendingMsgRef.current = null;
             }
-        } catch (e) {
+        } catch {
             toast.error('Error de conexión al enviar mensaje');
             setMessages((prev) => prev.filter((m) => m.id !== tempId));
             pendingMsgRef.current = null;
@@ -518,6 +531,151 @@ return;
             toast.error('Error de conexión al enviar reacción');
         }
     }, [instance, selectedConv]);
+
+    function handleReact(msg: LocalMessage, e: React.MouseEvent) {
+        const btn = e.currentTarget as HTMLElement;
+        const rect = btn.getBoundingClientRect();
+
+        setReactTarget((prev) =>
+            prev?.msg.message_id === msg.message_id ? null : { msg, rect },
+        );
+    }
+
+    function handleCopy(msg: LocalMessage) {
+        const text = msg.text ?? '';
+        navigator.clipboard.writeText(text).then(() => {
+            toast.success('Texto copiado');
+        }).catch(() => {
+            toast.error('Error al copiar');
+        });
+    }
+
+    async function handleGeneratePreview(msg: LocalMessage) {
+        if (!msg.text) return;
+        const urls = msg.text.match(/https?:\/\/[^\s<]+/g);
+        if (!urls) return;
+
+        setGeneratingPreview(msg.id);
+
+        for (const url of urls) {
+            try {
+                await fetch(`/api/link-preview?url=${encodeURIComponent(url)}&message_id=${msg.id}`, {
+                    headers: { Accept: 'application/json' },
+                });
+            } catch {
+                // ignore per-URL failures
+            }
+        }
+
+        setGeneratingPreview((prev) => (prev === msg.id ? null : prev));
+
+        setMessages((prev) =>
+            prev.map((m) => (m.id === msg.id ? { ...m } : m)),
+        );
+
+        toast.success('Preview generado');
+    }
+
+    async function handleForwardSubmit(targetChannelId: string) {
+        if (!forwardMsg) {
+return;
+}
+
+        setForwarding(true);
+        const number = targetChannelId.split('@')[0];
+
+        const payload: {
+            number: string;
+            text?: string;
+            channel_id: string;
+            media_url?: string;
+            media_type?: string;
+        } = {
+            number,
+            channel_id: targetChannelId,
+        };
+
+        if (forwardMsg.text) {
+payload.text = forwardMsg.text;
+}
+
+        if (forwardMsg.media_url) {
+            const relative = forwardMsg.media_url.replace('/storage/', '');
+            payload.media_url = relative;
+
+            if (forwardMsg.message_type === 'imageMessage') {
+payload.media_type = 'image';
+} else if (forwardMsg.message_type === 'videoMessage') {
+payload.media_type = 'video';
+} else if (forwardMsg.message_type === 'audioMessage') {
+payload.media_type = 'audio';
+} else if (forwardMsg.message_type === 'stickerMessage') {
+payload.media_type = 'sticker';
+} else {
+payload.media_type = 'document';
+}
+        }
+
+        try {
+            const res = await fetch(entradasSend(instance).url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': getCsrfToken(),
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (res.ok) {
+                const targetConv = conversations.find((c) => c.channel_id === targetChannelId);
+                const name = targetConv?.contact.name ?? number;
+                toast.success(`Mensaje reenviado a ${name}`);
+                setShowForward(false);
+                setForwardMsg(null);
+                setForwardSearch('');
+            } else {
+                const data = await res.json().catch(() => ({}));
+                toast.error(data.error ?? 'Error al reenviar mensaje');
+            }
+        } catch {
+            toast.error('Error de conexión al reenviar');
+        } finally {
+            setForwarding(false);
+        }
+    }
+
+    function handleDelete(msg: LocalMessage) {
+        setDeleteMsg(msg);
+    }
+
+    async function confirmDeleteMsg() {
+        if (!deleteMsg) {
+return;
+}
+
+        try {
+            const res = await fetch(`/admin/entradas/${instance}/messages/${deleteMsg.id}`, {
+                method: 'DELETE',
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': getCsrfToken(),
+                },
+            });
+
+            if (res.ok) {
+                setMessages((prev) => prev.filter((m) => m.id !== deleteMsg.id));
+                toast.success('Mensaje eliminado');
+            } else {
+                toast.error('Error al eliminar mensaje');
+            }
+        } catch {
+            toast.error('Error de conexión al eliminar');
+        } finally {
+            setDeleteMsg(null);
+        }
+    }
 
     function handleQuickReplySelect(reply: { shortcut: string; message: string | null; media_url: string | null; media_type: string | null }) {
         let text = reply.message ?? '';
@@ -632,17 +790,6 @@ return;
 
             handleSendText();
         }
-    }
-
-    function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
-        const file = e.target.files?.[0];
-
-        if (!file || !selectedConv) {
-            return;
-        }
-
-        setPickedFile(file);
-        e.target.value = '';
     }
 
     async function handleSendFile() {
@@ -760,8 +907,6 @@ return;
         setDeleteDialog(null);
     }
 
-    const phoneNumber = selectedConv?.channel_id ?? '';
-
     return (
         <>
             <Head title={`Entradas - ${instName}`} />
@@ -859,12 +1004,15 @@ return;
                                                         isGroup={isGroup}
                                                         reaction={reaction}
                                                         msgSearch={msgSearch}
-                                                        onContextMenu={(e, m) => {
-                                                            if (m.message_id && selectedConv) {
-                                                                setContextMenu({ x: e.clientX, y: e.clientY, msg: m });
-                                                            }
+                                                        onLightbox={(url) => setLightboxSrc(url)}
+                                                        onReact={handleReact}
+                                                        onForward={(m) => {
+                                                            setForwardMsg(m);
+                                                            setShowForward(true);
                                                         }}
-                                                        onLightbox={setLightboxSrc}
+                                                        onCopy={handleCopy}
+                                                        onDelete={handleDelete}
+                                                        onGeneratePreview={handleGeneratePreview}
                                                     />
                                                 );
                                             });
@@ -996,18 +1144,20 @@ return;
                 </DialogContent>
             </Dialog>
 
-            {contextMenu && (
+            {/* Reaction picker popup */}
+            {reactTarget && (
                 <>
                     <div
                         className="fixed inset-0 z-50"
-                        onClick={() => setContextMenu(null)}
-                        onContextMenu={(e) => {
- e.preventDefault(); setContextMenu(null); 
-}}
+                        onClick={() => setReactTarget(null)}
                     />
                     <div
                         className="fixed z-50 flex items-center gap-1 rounded-xl border bg-card p-1.5 shadow-xl"
-                        style={{ left: contextMenu.x, top: contextMenu.y }}
+                        style={{
+                            left: reactTarget.rect.left + reactTarget.rect.width / 2,
+                            top: reactTarget.rect.top - 48,
+                            transform: 'translateX(-50%)',
+                        }}
                     >
                         {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
                             <button
@@ -1015,16 +1165,119 @@ return;
                                 type="button"
                                 className="flex size-9 items-center justify-center rounded-lg text-xl hover:bg-muted transition-colors"
                                 onClick={() => {
-                                    sendReaction(contextMenu.msg, emoji);
-                                    setContextMenu(null);
+                                    sendReaction(reactTarget.msg, emoji);
+                                    setReactTarget(null);
                                 }}
                             >
                                 {emoji}
                             </button>
                         ))}
+                        <button
+                            type="button"
+                            className="flex size-9 items-center justify-center rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
+                            onClick={() => setReactTarget(null)}
+                            title="Cerrar"
+                        >
+                            ✕
+                        </button>
                     </div>
                 </>
             )}
+
+            {/* Forward dialog */}
+            <Dialog open={showForward} onOpenChange={(o) => {
+ if (!o) {
+ setShowForward(false); setForwardMsg(null); setForwardSearch(''); 
+} 
+}}>
+                <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Reenviar mensaje</DialogTitle>
+                        <DialogDescription>
+                            Selecciona una conversación para reenviar
+                            {forwardMsg?.text && (
+                                <span className="mt-1 block rounded bg-muted p-2 text-xs italic">
+                                    "{forwardMsg.text.slice(0, 80)}{forwardMsg.text.length > 80 ? '...' : ''}"
+                                </span>
+                            )}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                            value={forwardSearch}
+                            onChange={(e) => setForwardSearch(e.target.value)}
+                            className="pl-9"
+                            placeholder="Buscar conversación..."
+                            autoFocus
+                        />
+                    </div>
+                    <div className="max-h-60 space-y-1 overflow-y-auto">
+                        {conversations
+                            .filter((c) => {
+                                if (!forwardSearch) {
+return true;
+}
+
+                                const q = forwardSearch.toLowerCase();
+                                const phoneFromJid = c.channel_id.split('@')[0];
+
+                                return c.contact.name?.toLowerCase().includes(q)
+                                    || c.contact.phone?.includes(q)
+                                    || phoneFromJid.includes(q);
+                            })
+                            .map((c) => (
+                                <button
+                                    key={c.channel_id}
+                                    type="button"
+                                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted transition-colors disabled:opacity-50"
+                                    disabled={forwarding}
+                                    onClick={() => handleForwardSubmit(c.channel_id)}
+                                >
+                                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                                        {(c.contact.name ?? c.channel_id.split('@')[0]).charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate font-medium">{c.contact.name || 'Desconocido'}</p>
+                                        <p className="truncate text-xs text-muted-foreground">{c.contact.phone || c.channel_id.split('@')[0]}</p>
+                                    </div>
+                                </button>
+                            ))}
+                        {conversations.filter((c) => {
+                            if (!forwardSearch) {
+return true;
+}
+
+                            const q = forwardSearch.toLowerCase();
+                            const phoneFromJid = c.channel_id.split('@')[0];
+
+                            return c.contact.name?.toLowerCase().includes(q)
+                                || c.contact.phone?.includes(q)
+                                || phoneFromJid.includes(q);
+                        }).length === 0 && (
+                            <p className="py-4 text-center text-sm text-muted-foreground">
+                                Sin resultados
+                            </p>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete message confirmation */}
+            <Dialog open={!!deleteMsg} onOpenChange={() => setDeleteMsg(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Eliminar mensaje</DialogTitle>
+                        <DialogDescription>
+                            ¿Estás seguro de eliminar este mensaje?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteMsg(null)}>Cancelar</Button>
+                        <Button variant="destructive" onClick={confirmDeleteMsg}>Eliminar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={aiConfirmOpen} onOpenChange={(open) => {
  if (!open) {

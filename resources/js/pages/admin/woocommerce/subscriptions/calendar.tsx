@@ -212,14 +212,14 @@ return;
             <Head title="Calendario de Suscripciones — WooCommerce" />
 
             <div className="flex flex-col gap-4 p-6">
-                <div className="flex items-center gap-3">
+                {/* <div className="flex items-center gap-3">
                     <Link href="/admin/woocommerce/pos">
                         <Button variant="ghost" size="icon" className="size-8">
                             <ArrowLeft className="size-4" />
                         </Button>
                     </Link>
                     <h1 className="text-xl font-bold">Calendario de Suscripciones</h1>
-                </div>
+                </div> */}
 
                 <div className="rounded-xl border bg-card p-4">
                     <FullCalendar

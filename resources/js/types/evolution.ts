@@ -57,6 +57,7 @@ export type LocalMessage = {
     sender_avatar: string | null;
     reaction_to: string | null;
     status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | null;
+    link_preview: { url: string; title: string | null; description: string | null; image: string | null } | null;
 };
 
 export type EvolutionChat = {
