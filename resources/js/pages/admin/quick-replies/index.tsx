@@ -1,6 +1,7 @@
 import { Head } from '@inertiajs/react';
-import { FileText, Plus, Trash2, Zap } from 'lucide-react';
+import { FileText, Paperclip, Plus, Trash2, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +14,6 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import {
     Table,
     TableBody,
@@ -22,6 +22,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { useConfirmDialog } from '@/hooks/use-confirm-dialog';
 import { index as quickRepliesIndex } from '@/routes/admin/quick-replies';
 
@@ -38,24 +39,160 @@ function getCsrfToken(): string {
     return document.querySelector<HTMLMetaElement>('meta[name=csrf-token]')?.content ?? '';
 }
 
+type FormState = {
+    shortcut: string;
+    message: string;
+    file: File | null;
+    existingFile: string | null;
+    mediaType: string;
+};
+
+const initialForm: FormState = {
+    shortcut: '',
+    message: '',
+    file: null,
+    existingFile: null,
+    mediaType: '',
+};
+
+function FormFields({
+    form,
+    onChange,
+    fileInputRef,
+}: {
+    form: FormState;
+    onChange: (patch: Partial<FormState>) => void;
+    fileInputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+    const existingPreviewUrl = form.existingFile && form.mediaType === 'image'
+        ? '/storage/' + form.existingFile
+        : null;
+
+    const newPreviewUrl = form.file && form.mediaType === 'image'
+        ? URL.createObjectURL(form.file)
+        : null;
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <label className="mb-1 block text-sm font-medium">Atajo</label>
+                <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">/</span>
+                    <Input
+                        value={form.shortcut}
+                        onChange={(e) => onChange({ shortcut: e.target.value })}
+                        className="pl-6"
+                        placeholder="saludo"
+                    />
+                </div>
+            </div>
+            <div>
+                <label className="mb-1 block text-sm font-medium">
+                    Mensaje <span className="text-muted-foreground">({'{nombre}'}, {'{telefono}'})</span>
+                </label>
+                <Textarea
+                    value={form.message}
+                    onChange={(e) => onChange({ message: e.target.value })}
+                    rows={4}
+                    placeholder="Hola {nombre}, gracias por contactarnos..."
+                />
+            </div>
+            <div>
+                <label className="mb-1 block text-sm font-medium">Archivo (opcional)</label>
+
+                {newPreviewUrl && (
+                    <img
+                        src={newPreviewUrl}
+                        alt="preview"
+                        className="mb-2 max-h-32 w-full rounded-md border object-cover"
+                    />
+                )}
+
+                {existingPreviewUrl && !form.file && (
+                    <img
+                        src={existingPreviewUrl}
+                        alt="preview"
+                        className="mb-2 max-h-32 w-full rounded-md border object-cover"
+                    />
+                )}
+
+                {form.file ? (
+                    <div className="flex items-center gap-2 rounded-md border border-input bg-muted/50 px-3 py-2 text-sm">
+                        <Paperclip className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 truncate">{form.file.name}</span>
+                        <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => onChange({ file: null })}
+                        >
+                            <X className="size-4" />
+                        </button>
+                    </div>
+                ) : form.existingFile ? (
+                    <div className="flex items-center gap-2 rounded-md border border-input bg-muted/50 px-3 py-2 text-sm">
+                        <FileText className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 truncate text-muted-foreground">
+                            {form.existingFile.split('/').pop()}
+                        </span>
+                        <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => onChange({ existingFile: null })}
+                        >
+                            <X className="size-4" />
+                        </button>
+                    </div>
+                ) : (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <Paperclip className="mr-2 size-4" />
+                        Seleccionar archivo
+                    </Button>
+                )}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => onChange({ file: e.target.files?.[0] ?? null })}
+                />
+            </div>
+            <div>
+                <label className="mb-1 block text-sm font-medium">Tipo de archivo</label>
+                <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={form.mediaType}
+                    onChange={(e) => onChange({ mediaType: e.target.value })}
+                >
+                    <option value="">Ninguno</option>
+                    <option value="image">Imagen</option>
+                    <option value="video">Video</option>
+                    <option value="audio">Audio</option>
+                    <option value="document">Documento</option>
+                </select>
+            </div>
+        </div>
+    );
+}
+
 export default function QuickRepliesIndex() {
     const [replies, setReplies] = useState<QuickReply[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshKey, setRefreshKey] = useState(0);
 
     const [editReply, setEditReply] = useState<QuickReply | null>(null);
-    const [editShortcut, setEditShortcut] = useState('');
-    const [editMessage, setEditMessage] = useState('');
-    const [editMediaUrl, setEditMediaUrl] = useState('');
-    const [editMediaType, setEditMediaType] = useState('');
+    const [editForm, setEditForm] = useState<FormState>(initialForm);
     const [saving, setSaving] = useState(false);
 
     const [showCreate, setShowCreate] = useState(false);
-    const [createShortcut, setCreateShortcut] = useState('');
-    const [createMessage, setCreateMessage] = useState('');
-    const [createMediaUrl, setCreateMediaUrl] = useState('');
-    const [createMediaType, setCreateMediaType] = useState('');
+    const [createForm, setCreateForm] = useState<FormState>(initialForm);
     const [creating, setCreating] = useState(false);
+
+    const editFileRef = useRef<HTMLInputElement>(null);
+    const createFileRef = useRef<HTMLInputElement>(null);
 
     const { confirm, dialogProps } = useConfirmDialog();
 
@@ -70,6 +207,7 @@ export default function QuickRepliesIndex() {
         })
             .then((res) => res.json() as Promise<QuickReply[]>)
             .then(setReplies)
+            .catch(() => toast.error('Error al cargar respuestas rápidas'))
             .finally(() => setLoading(false));
     }, []);
 
@@ -77,69 +215,89 @@ export default function QuickRepliesIndex() {
         fetchReplies();
     }, [fetchReplies, refreshKey]);
 
+    async function sendForm(
+        url: string,
+        method: string,
+        form: FormState,
+    ): Promise<boolean> {
+        const body = new FormData();
+        body.append('shortcut', form.shortcut);
+        body.append('message', form.message);
+        body.append('media_type', form.mediaType);
+
+        if (form.file) {
+            body.append('file', form.file);
+        } else if (method === 'PUT' && !form.file && !form.existingFile) {
+            body.append('remove_media', '1');
+        }
+
+        if (method === 'PUT') {
+            body.append('_method', 'PUT');
+        }
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+            },
+            body,
+        });
+
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            toast.error(data.message ?? data.shortcut?.[0] ?? 'Error del servidor');
+
+            return false;
+        }
+
+        return true;
+    }
+
     const handleSave = async () => {
-        if (!editReply || !editShortcut.trim()) return;
+        if (!editReply || !editForm.shortcut.trim()) {
+return;
+}
 
         setSaving(true);
 
         try {
-            const res = await fetch(`/admin/quick-replies/${editReply.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-                body: JSON.stringify({
-                    shortcut: editShortcut,
-                    message: editMessage,
-                    media_url: editMediaUrl || null,
-                    media_type: editMediaType || null,
-                }),
-            });
+            const ok = await sendForm(
+                `/admin/quick-replies/${editReply.id}`,
+                'PUT',
+                editForm,
+            );
 
-            if (res.ok) {
+            if (ok) {
+                toast.success('Respuesta rápida actualizada');
                 setEditReply(null);
                 setRefreshKey((k) => k + 1);
             }
         } catch {
-            /* ignore */
+            toast.error('Error de conexión al guardar');
         } finally {
             setSaving(false);
         }
     };
 
     const handleCreate = async () => {
-        if (!createShortcut.trim()) return;
+        if (!createForm.shortcut.trim()) {
+return;
+}
 
         setCreating(true);
 
         try {
-            const res = await fetch('/admin/quick-replies', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-                body: JSON.stringify({
-                    shortcut: createShortcut,
-                    message: createMessage,
-                    media_url: createMediaUrl || null,
-                    media_type: createMediaType || null,
-                }),
-            });
+            const ok = await sendForm('/admin/quick-replies', 'POST', createForm);
 
-            if (res.ok) {
+            if (ok) {
+                toast.success('Respuesta rápida creada');
                 setShowCreate(false);
-                setCreateShortcut('');
-                setCreateMessage('');
-                setCreateMediaUrl('');
-                setCreateMediaType('');
+                setCreateForm(initialForm);
                 setRefreshKey((k) => k + 1);
             }
         } catch {
-            /* ignore */
+            toast.error('Error de conexión al crear');
         } finally {
             setCreating(false);
         }
@@ -157,7 +315,10 @@ export default function QuickRepliesIndex() {
                 });
 
                 if (res.ok) {
+                    toast.success('Respuesta rápida eliminada');
                     setRefreshKey((k) => k + 1);
+                } else {
+                    toast.error('Error al eliminar');
                 }
             },
             'Eliminar respuesta rápida',
@@ -166,17 +327,22 @@ export default function QuickRepliesIndex() {
     };
 
     const mediaLabel = (type: string | null) => {
-        if (!type) return null;
+        if (!type) {
+return null;
+}
 
         return <Badge variant="outline">{type}</Badge>;
     };
 
     const openEdit = (reply: QuickReply) => {
         setEditReply(reply);
-        setEditShortcut(reply.shortcut);
-        setEditMessage(reply.message ?? '');
-        setEditMediaUrl(reply.media_url ?? '');
-        setEditMediaType(reply.media_type ?? '');
+        setEditForm({
+            shortcut: reply.shortcut,
+            message: reply.message ?? '',
+            file: null,
+            existingFile: reply.media_url,
+            mediaType: reply.media_type ?? '',
+        });
     };
 
     return (
@@ -267,130 +433,66 @@ export default function QuickRepliesIndex() {
                 </div>
             </div>
 
-            <Dialog open={editReply !== null} onOpenChange={(o) => { if (!o) setEditReply(null); }}>
+            <Dialog open={editReply !== null} onOpenChange={(o) => {
+ if (!o) {
+ setEditReply(null); setEditForm(initialForm); 
+} 
+}}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Editar respuesta rápida</DialogTitle>
                     </DialogHeader>
 
-                    <div className="space-y-4">
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">Atajo</label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">/</span>
-                                <Input
-                                    value={editShortcut}
-                                    onChange={(e) => setEditShortcut(e.target.value)}
-                                    className="pl-6"
-                                    placeholder="saludo"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">
-                                Mensaje <span className="text-muted-foreground">({'{nombre}'}, {'{telefono}'})</span>
-                            </label>
-                            <Textarea
-                                value={editMessage}
-                                onChange={(e) => setEditMessage(e.target.value)}
-                                rows={4}
-                                placeholder="Hola {nombre}, gracias por contactarnos..."
-                            />
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">URL de archivo (opcional)</label>
-                            <Input
-                                value={editMediaUrl}
-                                onChange={(e) => setEditMediaUrl(e.target.value)}
-                                placeholder="https://..."
-                            />
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">Tipo de archivo</label>
-                            <select
-                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                value={editMediaType}
-                                onChange={(e) => setEditMediaType(e.target.value)}
-                            >
-                                <option value="">Ninguno</option>
-                                <option value="image">Imagen</option>
-                                <option value="video">Video</option>
-                                <option value="audio">Audio</option>
-                                <option value="document">Documento</option>
-                            </select>
-                        </div>
-                    </div>
+                    <FormFields
+                        form={editForm}
+                        onChange={(patch) => setEditForm((prev) => ({ ...prev, ...patch }))}
+                        fileInputRef={editFileRef}
+                    />
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setEditReply(null)}>
+                        <Button variant="outline" onClick={() => {
+ setEditReply(null); setEditForm(initialForm); 
+}}>
                             Cancelar
                         </Button>
-                        <Button onClick={handleSave} disabled={!editShortcut.trim() || saving}>
+                        <Button onClick={handleSave} disabled={!editForm.shortcut.trim() || saving}>
                             {saving ? 'Guardando...' : 'Guardar'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={showCreate} onOpenChange={(o) => { if (!o) { setShowCreate(false); setCreateShortcut(''); setCreateMessage(''); setCreateMediaUrl(''); setCreateMediaType(''); } }}>
+            <Dialog
+                open={showCreate}
+                onOpenChange={(o) => {
+                    if (!o) {
+                        setShowCreate(false);
+                        setCreateForm(initialForm);
+                    }
+                }}
+            >
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Nueva respuesta rápida</DialogTitle>
                     </DialogHeader>
 
-                    <div className="space-y-4">
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">Atajo</label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">/</span>
-                                <Input
-                                    value={createShortcut}
-                                    onChange={(e) => setCreateShortcut(e.target.value)}
-                                    className="pl-6"
-                                    placeholder="saludo"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">
-                                Mensaje <span className="text-muted-foreground">({'{nombre}'}, {'{telefono}'})</span>
-                            </label>
-                            <Textarea
-                                value={createMessage}
-                                onChange={(e) => setCreateMessage(e.target.value)}
-                                rows={4}
-                                placeholder="Hola {nombre}, gracias por contactarnos..."
-                            />
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">URL de archivo (opcional)</label>
-                            <Input
-                                value={createMediaUrl}
-                                onChange={(e) => setCreateMediaUrl(e.target.value)}
-                                placeholder="https://..."
-                            />
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium">Tipo de archivo</label>
-                            <select
-                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                value={createMediaType}
-                                onChange={(e) => setCreateMediaType(e.target.value)}
-                            >
-                                <option value="">Ninguno</option>
-                                <option value="image">Imagen</option>
-                                <option value="video">Video</option>
-                                <option value="audio">Audio</option>
-                                <option value="document">Documento</option>
-                            </select>
-                        </div>
-                    </div>
+                    <FormFields
+                        form={createForm}
+                        onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
+                        fileInputRef={createFileRef}
+                    />
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => { setShowCreate(false); setCreateShortcut(''); setCreateMessage(''); setCreateMediaUrl(''); setCreateMediaType(''); }}>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setShowCreate(false);
+                                setCreateForm(initialForm);
+                            }}
+                        >
                             Cancelar
                         </Button>
-                        <Button onClick={handleCreate} disabled={!createShortcut.trim() || creating}>
+                        <Button onClick={handleCreate} disabled={!createForm.shortcut.trim() || creating}>
                             {creating ? 'Creando...' : 'Crear'}
                         </Button>
                     </DialogFooter>

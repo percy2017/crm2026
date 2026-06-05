@@ -1,4 +1,4 @@
-import { ExternalLink, Globe, Music2, Video } from 'lucide-react';
+import { ExternalLink, Globe, MapPin, Music2, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 type LinkPreviewData = {
@@ -53,6 +53,9 @@ const PLATFORM_ICONS: Record<string, typeof Globe> = {
     'vm.tiktok.com': Music2,
     'youtube.com': Video,
     'youtu.be': Video,
+    'goo.gl': MapPin,
+    'maps.google.com': MapPin,
+    'google.com': MapPin,
 };
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -62,10 +65,18 @@ const PLATFORM_LABELS: Record<string, string> = {
     'instagram.com': 'Instagram',
     'tiktok.com': 'TikTok',
     'vm.tiktok.com': 'TikTok',
+    'goo.gl': 'Google Maps',
+    'maps.google.com': 'Google Maps',
+    'google.com': 'Google Maps',
 };
 
 function getPlatformInfo(url: string): { Icon: typeof Globe; label: string } {
     const host = hostname(url);
+
+    if (host.includes('goo.gl') || host.includes('google.com/maps') || host === 'maps.google.com') {
+        return { Icon: MapPin, label: 'Google Maps' };
+    }
+
     const Icon = PLATFORM_ICONS[host] ?? Globe;
 
     return { Icon, label: PLATFORM_LABELS[host] ?? host };

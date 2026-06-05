@@ -1,6 +1,6 @@
 import { Link } from '@inertiajs/react';
 import { ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Collapsible,
     CollapsibleContent,
@@ -23,6 +23,10 @@ export function NavMain({ items = [], label = 'Platform' }: { items: NavItem[]; 
     const { isCurrentUrl } = useCurrentUrl();
     const defaultKey = items.find((item) => item.children?.some((c) => isCurrentUrl(c.href)))?.title ?? null;
     const [openKey, setOpenKey] = useState<string | null>(defaultKey);
+
+    useEffect(() => {
+        setOpenKey(defaultKey);
+    }, [defaultKey]);
 
     return (
         <SidebarGroup className="px-2 py-0">

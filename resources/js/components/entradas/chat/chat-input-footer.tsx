@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
 import EmojiPicker from 'emoji-picker-react';
 import type { EmojiClickData } from 'emoji-picker-react';
 import { Mic, Paperclip, Send, Smile, Sparkles, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { QuickReplyDropdown } from '@/components/entradas/quick-reply-dropdown';
+import { useRef, useState } from 'react';
 import { LinkPreview, extractUrls } from '@/components/entradas/link-preview';
+import { QuickReplyDropdown } from '@/components/entradas/quick-reply-dropdown';
+import { Button } from '@/components/ui/button';
 import type { LocalConversation } from '@/types';
 
 interface ChatInputFooterProps {
@@ -66,9 +66,11 @@ export function ChatInputFooter({
                 className="hidden"
                 onChange={(e) => {
                     const file = e.target.files?.[0];
+
                     if (file && selectedConv) {
                         setPickedFile(file);
                     }
+
                     e.target.value = '';
                 }}
             />
@@ -161,15 +163,20 @@ export function ChatInputFooter({
                     onKeyDown={onKeyDown}
                     onPaste={(e) => {
                         const items = e.clipboardData?.items;
-                        if (!items) return;
+
+                        if (!items) {
+return;
+}
 
                         for (const item of items) {
                             if (item.type.startsWith('image/') || item.type.startsWith('video/') || item.type.startsWith('audio/')) {
                                 e.preventDefault();
                                 const file = item.getAsFile();
+
                                 if (file && selectedConv) {
                                     setPickedFile(file);
                                 }
+
                                 return;
                             }
                         }

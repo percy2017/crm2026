@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Inbox;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 class EvolutionApiService
@@ -115,11 +116,7 @@ class EvolutionApiService
 
     public function findContacts(string $instance): array
     {
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-
-            ->post("/chat/findContacts/{$instance}", []);
+        $response = $this->client()->post("/chat/findContacts/{$instance}", []);
 
         if ($response->failed()) {
             throw new RuntimeException(
@@ -132,10 +129,7 @@ class EvolutionApiService
 
     public function fetchChats(string $instance): array
     {
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-            ->get("/chat/findChats/{$instance}");
+        $response = $this->client()->get("/chat/findChats/{$instance}");
 
         if ($response->failed()) {
             throw new RuntimeException(
@@ -164,10 +158,7 @@ class EvolutionApiService
 
     public function sendText(string $instance, string $number, string $text): array
     {
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-            ->post("/message/sendText/{$instance}", [
+        $response = $this->client()->post("/message/sendText/{$instance}", [
                 'number' => $number,
                 'text' => $text,
             ]);
@@ -183,21 +174,27 @@ class EvolutionApiService
 
     public function sendMedia(string $instance, string $number, string $mediaType, string $mediaPath, string $mimetype, ?string $caption = null, ?string $fileName = null): array
     {
-        $mediaUrl = asset('storage/'.rawurlencode($mediaPath));
+        $storagePath = $mediaPath;
+        $storageUrl = rtrim(asset('storage/'), '/');
+        if (str_starts_with($storagePath, $storageUrl.'/')) {
+            $storagePath = trim(substr($storagePath, strlen($storageUrl)), '/');
+        }
+
+        $base64 = null;
+        if (Storage::disk('public')->exists($storagePath)) {
+            $base64 = base64_encode(Storage::disk('public')->get($storagePath));
+        }
 
         $payload = [
             'number' => $number,
             'mediatype' => $mediaType,
             'mimetype' => $mimetype,
-            'media' => $mediaUrl,
+            'media' => $base64,
             'caption' => $caption ?? '',
             'fileName' => $fileName ?? basename($mediaPath),
         ];
 
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-            ->post("/message/sendMedia/{$instance}", $payload);
+        $response = $this->client()->post("/message/sendMedia/{$instance}", $payload);
 
         if ($response->failed()) {
             throw new RuntimeException(
@@ -210,10 +207,7 @@ class EvolutionApiService
 
     public function sendReaction(string $instance, string $number, string $reactionEmoji, string $originalMessageId): array
     {
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-            ->post("/message/sendReaction/{$instance}", [
+        $response = $this->client()->post("/message/sendReaction/{$instance}", [
                 'number' => $number,
                 'key' => [
                     'id' => $originalMessageId,
@@ -234,11 +228,7 @@ class EvolutionApiService
 
     public function fetchGroups(string $instance): array
     {
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-
-            ->get("/group/fetchAllGroups/{$instance}", [
+        $response = $this->client()->get("/group/fetchAllGroups/{$instance}", [
                 'getParticipants' => 'true',
             ]);
 
@@ -253,10 +243,7 @@ class EvolutionApiService
 
     public function findGroupInfos(string $instance, string $groupJid): array
     {
-        $response = Http::baseUrl($this->serverUrl)
-            ->withHeader('apikey', $this->apiKey)
-            ->acceptJson()
-            ->get("/group/findGroupInfos/{$instance}", [
+        $response = $this->client()->get("/group/findGroupInfos/{$instance}", [
                 'groupJid' => $groupJid,
             ]);
 
@@ -346,6 +333,8 @@ class EvolutionApiService
     {
         return Http::baseUrl($this->serverUrl)
             ->withHeader('apikey', $this->apiKey)
-            ->acceptJson();
+            ->acceptJson()
+            ->timeout(0)
+            ->connectTimeout(0);
     }
 }

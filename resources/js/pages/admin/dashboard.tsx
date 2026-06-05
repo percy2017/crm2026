@@ -46,11 +46,20 @@ function timeAgo(dateStr: string): string {
     const diff = Date.now() - new Date(dateStr).getTime();
     const mins = Math.floor(diff / 60000);
 
-    if (mins < 1) return 'ahora';
-    if (mins < 60) return `hace ${mins} min`;
+    if (mins < 1) {
+return 'ahora';
+}
+
+    if (mins < 60) {
+return `hace ${mins} min`;
+}
+
     const hours = Math.floor(mins / 60);
 
-    if (hours < 24) return `hace ${hours}h`;
+    if (hours < 24) {
+return `hace ${hours}h`;
+}
+
     const days = Math.floor(hours / 24);
 
     return `hace ${days}d`;

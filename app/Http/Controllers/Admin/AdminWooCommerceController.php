@@ -236,8 +236,12 @@ class AdminWooCommerceController extends Controller
                 $data['customer_note'] = $validated['customer_note'];
             }
 
+            $saleDate = ! empty($validated['date_created'])
+                ? $validated['date_created']
+                : now()->toDateString();
+
             $metaData = [
-                ['key' => '_sale_date', 'value' => now()->toDateString()],
+                ['key' => '_sale_date', 'value' => $saleDate],
                 ['key' => '_wc_order_attribution_source_type', 'value' => 'pos'],
                 ['key' => '_wc_order_attribution_utm_source', 'value' => 'pos'],
                 ['key' => '_wc_order_attribution_medium', 'value' => 'pos'],
@@ -246,16 +250,41 @@ class AdminWooCommerceController extends Controller
                 ['key' => '_tvp_vendedor', 'value' => auth()->user()->name ?? 'admin'],
             ];
 
+            $billingContactId = null;
+            $billingFirstName = '';
+            $billingLastName = '';
+            $billingEmail = '';
+            $billingPhone = '';
+
             if (! empty($validated['billing'])) {
                 $billing = $validated['billing'];
 
-                if (! empty($billing['contact_id'])) {
-                    $metaData[] = ['key' => '_contact_id', 'value' => (int) $billing['contact_id']];
+                $billingContactId = ! empty($billing['contact_id']) ? (int) $billing['contact_id'] : null;
+                $billingFirstName = $billing['first_name'] ?? '';
+                $billingLastName = $billing['last_name'] ?? '';
+                $billingEmail = $billing['email'] ?? '';
+                $billingPhone = $billing['phone'] ?? '';
+
+                if ($billingContactId) {
+                    $metaData[] = ['key' => '_contact_id', 'value' => $billingContactId];
+                }
+
+                $contactName = trim(trim($billingFirstName).' '.trim($billingLastName));
+                if ($contactName) {
+                    $metaData[] = ['key' => '_contact_name', 'value' => $contactName];
+                }
+
+                if ($billingEmail) {
+                    $metaData[] = ['key' => '_contact_email', 'value' => $billingEmail];
+                }
+
+                if ($billingPhone) {
+                    $metaData[] = ['key' => '_contact_phone', 'value' => $billingPhone];
                 }
 
                 $data['billing'] = [
-                    'first_name' => $billing['first_name'] ?? '',
-                    'last_name'  => $billing['last_name'] ?? '',
+                    'first_name' => ! empty($billingFirstName) ? $billingFirstName : ($billingLastName ?: 'Cliente'),
+                    'last_name'  => $billingLastName,
                     'company'    => '',
                     'address_1'  => '-',
                     'address_2'  => '',
@@ -263,8 +292,8 @@ class AdminWooCommerceController extends Controller
                     'state'      => '',
                     'postcode'   => '',
                     'country'    => 'BO',
-                    'email'      => $billing['email'] ?? '',
-                    'phone'      => $billing['phone'] ?? '',
+                    'email'      => $billingEmail && filter_var($billingEmail, FILTER_VALIDATE_EMAIL) ? $billingEmail : ($billingPhone ? $billingPhone.'@whatsapp.placeholder' : 'cliente@tienda.local'),
+                    'phone'      => $billingPhone,
                 ];
             }
 
@@ -283,7 +312,7 @@ class AdminWooCommerceController extends Controller
 
             $data['meta_data'] = $metaData;
 
-            \Illuminate\Support\Facades\Log::info('POS order payload', $data);
+            \Illuminate\Support\Facades\Log::info('POS order payload', ['data' => $data, 'validated' => $validated]);
 
             $order = Order::create($data);
 
@@ -576,7 +605,9 @@ class AdminWooCommerceController extends Controller
             'contact_profile_pic_url' => $this->resolveContactProfilePic($order),
             'is_pos' => $this->findMeta($order, '_wc_order_attribution_source_type') === 'pos',
             'contact_id' => $contactId ? (int) $contactId : null,
-            'contact_name' => $contactId ? Contact::find((int) $contactId)?->name : null,
+            'contact_name' => $this->findMeta($order, '_contact_name') ?? ($contactId ? Contact::find((int) $contactId)?->name : null),
+            'contact_email' => $this->findMeta($order, '_contact_email'),
+            'contact_phone' => $this->findMeta($order, '_contact_phone'),
             'sale_date' => $this->findMeta($order, '_sale_date'),
             'tvp_terminal' => $this->findMeta($order, '_tvp_terminal'),
             'tvp_vendedor' => $this->findMeta($order, '_tvp_vendedor'),

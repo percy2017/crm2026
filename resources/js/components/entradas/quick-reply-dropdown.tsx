@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
 import { FileText, Zap } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 
 type QuickReply = {

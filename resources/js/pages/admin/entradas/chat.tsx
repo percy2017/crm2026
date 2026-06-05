@@ -252,6 +252,9 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                         phone: data.contact.phone ?? c.contact.phone,
                                         profile_pic_url: data.contact.profile_pic_url ?? c.contact.profile_pic_url,
                                     },
+                                    unread_count: msg.input_output === true && data.channel_id !== selectedConvRef.current?.channel_id
+                                        ? (c.unread_count ?? 0) + 1
+                                        : c.unread_count,
                                 }
                                 : c,
                         )
@@ -330,7 +333,10 @@ export default function EntradasChat({ instance }: { instance: string }) {
 
     useEffect(() => {
         const el = messagesContainerRef.current;
-        if (!el) return;
+
+        if (!el) {
+return;
+}
 
         const observer = new ResizeObserver(() => {
             if (isAtBottom) {
@@ -339,6 +345,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
         });
 
         observer.observe(el);
+
         return () => observer.disconnect();
     }, [isAtBottom]);
 
@@ -400,6 +407,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
         const textarea = document.querySelector<HTMLTextAreaElement>(
             '.entrada-textarea',
         );
+
         if (textarea) {
             textarea.style.height = 'auto';
         }
@@ -476,7 +484,9 @@ export default function EntradasChat({ instance }: { instance: string }) {
     }
 
     const sendReaction = useCallback(async (msg: LocalMessage, emoji: string) => {
-        if (!selectedConv || !msg.message_id) return;
+        if (!selectedConv || !msg.message_id) {
+return;
+}
 
         const number = selectedConv.channel_id.split('@')[0];
         const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
@@ -543,7 +553,9 @@ export default function EntradasChat({ instance }: { instance: string }) {
     }
 
     async function handleAiReply() {
-        if (!selectedConv) return;
+        if (!selectedConv) {
+return;
+}
 
         setAiGenerating(true);
 
@@ -583,6 +595,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 toast.error(data.error ?? 'Error al generar respuesta con IA');
+
                 return;
             }
 
@@ -865,7 +878,7 @@ export default function EntradasChat({ instance }: { instance: string }) {
                                 <button
                                     type="button"
                                     onClick={scrollToBottom}
-                                    className="absolute bottom-32 right-6 z-40 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+                                    className="absolute bottom-44 right-6 z-40 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
                                     title="Ir abajo"
                                 >
                                     <span className="relative inline-flex">
@@ -988,7 +1001,9 @@ export default function EntradasChat({ instance }: { instance: string }) {
                     <div
                         className="fixed inset-0 z-50"
                         onClick={() => setContextMenu(null)}
-                        onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+                        onContextMenu={(e) => {
+ e.preventDefault(); setContextMenu(null); 
+}}
                     />
                     <div
                         className="fixed z-50 flex items-center gap-1 rounded-xl border bg-card p-1.5 shadow-xl"
@@ -1011,7 +1026,11 @@ export default function EntradasChat({ instance }: { instance: string }) {
                 </>
             )}
 
-            <Dialog open={aiConfirmOpen} onOpenChange={(open) => { if (!open) setAiConfirmOpen(false); }}>
+            <Dialog open={aiConfirmOpen} onOpenChange={(open) => {
+ if (!open) {
+setAiConfirmOpen(false);
+} 
+}}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Responder con IA</DialogTitle>
@@ -1034,7 +1053,11 @@ export default function EntradasChat({ instance }: { instance: string }) {
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={aiDraft !== null} onOpenChange={(open) => { if (!open) setAiDraft(null); }}>
+            <Dialog open={aiDraft !== null} onOpenChange={(open) => {
+ if (!open) {
+setAiDraft(null);
+} 
+}}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Responder con IA</DialogTitle>
@@ -1050,7 +1073,10 @@ export default function EntradasChat({ instance }: { instance: string }) {
                             Cancelar
                         </Button>
                         <Button onClick={() => {
-                            if (!aiDraft || !selectedConv) return;
+                            if (!aiDraft || !selectedConv) {
+return;
+}
+
                             const text = aiDraft;
                             setAiDraft(null);
                             sendMessage({

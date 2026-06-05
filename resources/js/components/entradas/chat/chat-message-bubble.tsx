@@ -1,6 +1,6 @@
 import { FileText, MessageSquare } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { LinkPreview } from '@/components/entradas/link-preview';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import type { LocalMessage } from '@/types';
 import { renderMessageText } from '@/utils/message';
@@ -50,6 +50,7 @@ export function ChatMessageBubble({
             className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
             onContextMenu={(e) => {
                 e.preventDefault();
+
                 if (msg.message_id) {
                     onContextMenu(e, msg);
                 }

@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\AdminDealController;
 use App\Http\Controllers\Admin\AdminEntradaController;
 use App\Http\Controllers\Admin\AdminMediaController;
 use App\Http\Controllers\Admin\AdminPipelineStageController;
+use App\Http\Controllers\Admin\AdminCronJobController;
 use App\Http\Controllers\Admin\AdminQuickReplyController;
 use App\Http\Controllers\Admin\AdminRoleController;
 use App\Http\Controllers\Admin\AdminUserController;
@@ -100,6 +101,18 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::get('/media/list', [AdminMediaController::class, 'list'])->name('media.list');
     Route::post('/media/upload', [AdminMediaController::class, 'upload'])->name('media.upload');
     Route::delete('/media/{filename}', [AdminMediaController::class, 'destroy'])->name('media.destroy');
+
+    Route::prefix('cron-jobs')->name('cron-jobs.')->group(function () {
+        Route::get('/', [AdminCronJobController::class, 'index'])->name('index');
+        Route::get('/list', [AdminCronJobController::class, 'list'])->name('list');
+        Route::get('/commands', [AdminCronJobController::class, 'commands'])->name('commands');
+        Route::post('/', [AdminCronJobController::class, 'store'])->name('store');
+        Route::put('/{cronJob}', [AdminCronJobController::class, 'update'])->name('update');
+        Route::delete('/{cronJob}', [AdminCronJobController::class, 'destroy'])->name('destroy');
+        Route::post('/{cronJob}/toggle', [AdminCronJobController::class, 'toggle'])->name('toggle');
+        Route::post('/{cronJob}/run', [AdminCronJobController::class, 'runNow'])->name('run');
+        Route::get('/{cronJob}/logs', [AdminCronJobController::class, 'logs'])->name('logs');
+    });
 
     Route::prefix('quick-replies')->name('quick-replies.')->group(function () {
         Route::get('/', [AdminQuickReplyController::class, 'index'])->name('index');

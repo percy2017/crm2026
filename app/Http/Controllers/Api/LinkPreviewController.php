@@ -23,6 +23,12 @@ class LinkPreviewController extends Controller
         $url = $request->input('url');
         $host = parse_url($url, PHP_URL_HOST) ?? '';
 
+        // Google Maps: extract coords and generate static map image
+        $googleMaps = $this->resolveGoogleMaps($url);
+        if ($googleMaps) {
+            return response()->json($googleMaps);
+        }
+
         // Skip HTTP fetch for known bot-blocking sites
         if (in_array($host, self::BOT_BLOCKERS, true)) {
             return response()->json([
@@ -126,5 +132,70 @@ class LinkPreviewController extends Controller
         }
 
         return null;
+    }
+
+    private function resolveGoogleMaps(string $url): ?array
+    {
+        $host = parse_url($url, PHP_URL_HOST) ?? '';
+
+        $isGoogleMaps = str_contains($host, 'goo.gl')
+            || str_contains($host, 'google.com/maps')
+            || str_contains($host, 'googlemaps.com');
+
+        if (! $isGoogleMaps) {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(8)
+                ->withOptions(['allow_redirects' => true])
+                ->withHeaders([
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                ])
+                ->get($url);
+
+            $finalUrl = (string) $response->effectiveUri();
+            $html = $response->body();
+
+            $lat = null;
+            $lng = null;
+            $title = null;
+
+            if (preg_match('/@(-?\d+\.\d+),(-?\d+\.\d+)/', $finalUrl, $coords)) {
+                $lat = $coords[1];
+                $lng = $coords[2];
+            }
+
+            if (preg_match('/place\/([^\/@?]+)/', $finalUrl, $place)) {
+                $title = urldecode($place[1]);
+            }
+
+            if (! $title) {
+                $title = $this->extractMeta($html, 'og:title')
+                    ?? $this->extractTitle($html);
+            }
+
+            $description = $this->extractMeta($html, 'og:description')
+                ?? $this->extractMeta($html, 'description');
+
+            $image = null;
+            if ($lat && $lng) {
+                $image = "https://staticmap.openstreetmap.de/staticmap.php?center={$lat},{$lng}&zoom=15&size=600x300&maptype=mapnik";
+            }
+
+            return [
+                'url' => $finalUrl,
+                'title' => $title,
+                'description' => $description ?: 'Google Maps',
+                'image' => $image,
+            ];
+        } catch (\Exception $e) {
+            return [
+                'url' => $url,
+                'title' => 'Google Maps',
+                'description' => null,
+                'image' => null,
+            ];
+        }
     }
 }

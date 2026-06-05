@@ -16,6 +16,20 @@ use Inertia\Response;
 
 class AdminEntradaController extends Controller
 {
+    private function normalizeMediaUrl(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        $prefix = rtrim(asset('storage/'), '/').'/';
+        if (str_starts_with($url, $prefix)) {
+            return substr($url, strlen($prefix));
+        }
+
+        return $url;
+    }
+
     public function chat(string $instance, EvolutionApiService $evolution): Response
     {
         return Inertia::render('admin/entradas/chat', [
@@ -157,7 +171,7 @@ class AdminEntradaController extends Controller
                 'input_output' => false,
                 'message_type' => $messageType,
                 'text' => $text,
-                'media_url' => $mediaUrl,
+                'media_url' => $this->normalizeMediaUrl($mediaUrl),
                 'status' => 'sent',
             ]);
 

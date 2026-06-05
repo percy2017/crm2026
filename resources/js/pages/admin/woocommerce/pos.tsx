@@ -237,7 +237,7 @@ return;
             ...(item.variation ? { variation_id: item.variation.id } : {}),
         }));
 
-        const parts = customer?.name.split(' ') ?? [];
+        const parts = customer?.name.trim().split(/\s+/) ?? [];
         const payload: Record<string, unknown> = {
             line_items: lineItems,
             payment_method: paymentMethod,
@@ -252,8 +252,8 @@ return;
             }),
             billing: customer
                 ? {
-                      first_name: parts[0] ?? '',
-                      last_name: parts.slice(1).join(' ') ?? '',
+                      first_name: parts[0] || 'Cliente',
+                      last_name: parts.slice(1).join(' ') || '',
                       email: customer.email ?? '',
                       phone: customer.phone ?? '',
                       contact_id: customer.id,
@@ -347,24 +347,16 @@ return;
             </html>
         `;
 
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const printWindow = window.open(url, '_blank');
+        const printWindow = window.open('', '_blank');
 
         if (!printWindow) {
 return;
 }
 
-        const checkLoaded = setInterval(() => {
-            if (printWindow.document.readyState === 'complete') {
-                clearInterval(checkLoaded);
-                printWindow.onafterprint = () => {
-                    printWindow.close();
-                    URL.revokeObjectURL(url);
-                };
-                printWindow.print();
-            }
-        }, 100);
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.onafterprint = () => printWindow.close();
+        printWindow.print();
     };
 
     return (

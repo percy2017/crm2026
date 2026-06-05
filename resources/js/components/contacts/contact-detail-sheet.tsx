@@ -1,9 +1,11 @@
 import { Link, router } from '@inertiajs/react';
 import { Globe, Mail, MessageSquare, Phone, Shield, Users, FileText, Edit, Clock, Smartphone, Trash2, Loader2, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
     Sheet,
     SheetContent,
@@ -12,8 +14,6 @@ import {
     SheetDescription,
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { toast } from 'sonner';
 import { countryFlag } from '@/lib/utils';
 import type { Contact } from '@/types';
 
@@ -76,7 +76,10 @@ export function ContactDetailSheet({ contactId, onClose }: Props) {
                 credentials: 'same-origin',
             })
                 .then((res) => {
-                    if (!res.ok) return [];
+                    if (!res.ok) {
+return [];
+}
+
                     return res.json() as Promise<InboxOption[]>;
                 })
                 .then((list) => {

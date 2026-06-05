@@ -209,7 +209,10 @@ throw new Error((await res.json()).error ?? 'Error al eliminar');
                 credentials: 'same-origin',
             })
                 .then((res) => {
-                    if (!res.ok) return [];
+                    if (!res.ok) {
+return [];
+}
+
                     return res.json() as Promise<Array<{ id: number; name: string; type: string }>>;
                 })
                 .then((list) => {

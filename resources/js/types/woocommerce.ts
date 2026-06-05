@@ -67,6 +67,8 @@ export type WooOrder = {
     is_pos?: boolean;
     contact_id?: number | null;
     contact_name?: string | null;
+    contact_email?: string | null;
+    contact_phone?: string | null;
     sale_date?: string | null;
     tvp_terminal?: string | null;
     tvp_vendedor?: string | null;
